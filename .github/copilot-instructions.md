@@ -5,8 +5,7 @@ You have access to a form-testing CLI tool (`form-tester.js`) that automates tes
 ## Setup
 
 ```bash
-npm install -g @playwright/cli@latest
-playwright-cli install --skills
+npx form-tester install
 ```
 
 ## Running the CLI

@@ -1,14 +1,16 @@
 {
   "name": "form-tester",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "AI-powered form testing skill for /skjemautfyller forms using Playwright CLI. Works with Claude Code and GitHub Copilot.",
   "main": "form-tester.js",
   "bin": {
     "form-tester": "./form-tester.js"
   },
   "scripts": {
-    "test": "node --test tests/form-tester.test.js",
-    "setup": "npm install -g @playwright/cli@latest && playwright-cli install --skills"
+    "test": "node --test tests/form-tester.test.js"
+  },
+  "dependencies": {
+    "@playwright/cli": "^0.1.1"
   },
   "keywords": [
     "form-testing",

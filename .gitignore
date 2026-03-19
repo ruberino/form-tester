@@ -16,7 +16,7 @@ form-tester.config.json
 node_modules/
 
 # Original nested directory (flattened to root)
-form-tester/
+/form-tester/
 
 # OS
 .DS_Store

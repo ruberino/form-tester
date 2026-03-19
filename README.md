@@ -17,12 +17,8 @@ This installs skill files into your project:
 ## Prerequisites
 
 - Node.js 18+
-- [Playwright CLI](https://www.npmjs.com/package/@playwright/cli)
 
-```bash
-npm install -g @playwright/cli@latest
-playwright-cli install --skills
-```
+Playwright CLI is included as a dependency — no separate install needed.
 
 ## Configuration
 
