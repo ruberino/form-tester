@@ -112,6 +112,13 @@ Test runs are saved to `output/{form-id}/{timestamp}/` with:
 - Screenshots (PNG, full-page)
 - `test_results.txt`
 
+### Dokumenter verification
+
+After form submission, some forms store a copy in Dokumenter. The document type determines how to capture it:
+
+- **PDF documents** — download the file directly (`playwright-cli pdf` or via browser download)
+- **HTML documents** — take a full-page screenshot of the entire document (`playwright-cli screenshot --filename "..." --full-page`). HTML documents cannot be downloaded as-is, so the screenshot is the primary artifact.
+
 ## Update
 
 ```bash
