@@ -4,9 +4,9 @@ const path = require("path");
 const readline = require("readline");
 const { spawn, execSync } = require("child_process");
 
-const CONFIG_PATH = path.join(__dirname, "form-tester.config.json");
-const OUTPUT_BASE = path.resolve(__dirname, "output");
-const LOCAL_VERSION = "0.4.1";
+const CONFIG_PATH = path.join(process.cwd(), "form-tester.config.json");
+const OUTPUT_BASE = path.resolve(process.cwd(), "output");
+const LOCAL_VERSION = "0.4.2";
 const RECOMMENDED_PERSON = "Uromantisk Direktør";
 
 const PERSONAS = [
