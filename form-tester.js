@@ -6,7 +6,7 @@ const { spawn, execSync } = require("child_process");
 
 const CONFIG_PATH = path.join(process.cwd(), "form-tester.config.json");
 const OUTPUT_BASE = path.resolve(process.cwd(), "output");
-const LOCAL_VERSION = "0.5.0";
+const LOCAL_VERSION = "0.5.1";
 const RECOMMENDED_PERSON = "Uromantisk Direktør";
 
 const PERSONAS = [
@@ -884,10 +884,10 @@ async function handleTestAuto(url, config, flags) {
   const log = (msg) => { if (v !== "silent") console.log(msg); };
   const verbose = (msg) => { if (v === "verbose") console.log(msg); };
 
-  // Resolve PNR
-  const pnr = flags.pnr || config.pnr;
+  // Resolve PNR — check URL first, then flag, then config
+  const pnr = extractPnrFromUrl(url) || flags.pnr || config.pnr;
   if (!pnr) {
-    console.error("No PNR available. Pass --pnr <value> or set it in form-tester.config.json");
+    console.error("No PNR available. Pass --pnr <value>, include pnr= in the URL, or set it in form-tester.config.json");
     process.exit(1);
   }
   const fullUrl = extractPnrFromUrl(url) ? url : setPnrOnUrl(url, pnr);
