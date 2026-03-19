@@ -1,7 +1,7 @@
 ---
 name: form-tester
 description: Runs the form-tester CLI to test /skjemautfyller forms via Playwright CLI and exposes playwright-cli commands.
-allowed-tools: Bash(powershell:*), Bash(playwright-cli:*)
+allowed-tools: Bash(powershell:*), Bash(playwright-cli:*), Bash(npx form-tester:*)
 ---
 
 # Form Tester CLI

@@ -6,7 +6,7 @@ const { spawn, execSync } = require("child_process");
 
 const CONFIG_PATH = path.join(__dirname, "form-tester.config.json");
 const OUTPUT_BASE = path.resolve(__dirname, "output");
-const LOCAL_VERSION = "0.3.2";
+const LOCAL_VERSION = "0.3.3";
 const RECOMMENDED_PERSON = "Uromantisk Direktør";
 
 const PERSONAS = [
@@ -977,6 +977,26 @@ function install(targetDir) {
     const configDest = path.join(targetDir, "form-tester.config.example.json");
     fs.copyFileSync(configSrc, configDest);
     console.log("  Installed form-tester.config.example.json");
+  }
+
+  // Install playwright-cli globally if not already available
+  if (isPlaywrightCliAvailable()) {
+    console.log("  playwright-cli already in PATH");
+  } else {
+    console.log("  Installing playwright-cli globally...");
+    try {
+      execSync("npm install -g @playwright/cli@latest", {
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      console.log("  Installed playwright-cli globally");
+    } catch (err) {
+      console.log(
+        "  WARNING: Failed to install playwright-cli globally.",
+      );
+      console.log(
+        "  Run manually: npm install -g @playwright/cli@latest",
+      );
+    }
   }
 
   console.log("\nDone! Next steps:");
