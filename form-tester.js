@@ -6,7 +6,7 @@ const { spawn, execSync } = require("child_process");
 
 const CONFIG_PATH = path.join(__dirname, "form-tester.config.json");
 const OUTPUT_BASE = path.resolve(__dirname, "output");
-const LOCAL_VERSION = "0.4.0";
+const LOCAL_VERSION = "0.4.1";
 const RECOMMENDED_PERSON = "Uromantisk Direktør";
 
 const PERSONAS = [
@@ -1093,7 +1093,7 @@ function install(targetDir, isGlobal) {
   console.log("\nDone! Next steps:");
   console.log("  1. cp form-tester.config.example.json form-tester.config.json");
   console.log('  2. Edit form-tester.config.json and set your "pnr"');
-  console.log("  3. Run: npx form-tester");
+  console.log("  3. Run: form-tester");
 }
 
 async function main() {

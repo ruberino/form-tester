@@ -1,7 +1,7 @@
 ---
 name: form-tester
 description: Runs the form-tester CLI to test /skjemautfyller forms via Playwright CLI and exposes playwright-cli commands.
-allowed-tools: Bash(powershell:*), Bash(playwright-cli:*), Bash(npx form-tester:*)
+allowed-tools: Bash(powershell:*), Bash(playwright-cli:*), Bash(form-tester:*)
 ---
 
 # Form Tester CLI
@@ -9,12 +9,19 @@ allowed-tools: Bash(powershell:*), Bash(playwright-cli:*), Bash(npx form-tester:
 ## Quick start
 
 ```bash
-npx form-tester install   # one-time setup
-npx form-tester           # interactive CLI
+# One-time install (user runs this manually):
+npm install -g form-tester
+
+# Install skill files into project:
+form-tester install
+form-tester install --global   # or install to ~/.claude/skills/
 
 # Non-interactive mode (no prompts, best for AI agents):
-npx form-tester test <url> --auto
-npx form-tester test <url> --auto --pnr 12345 --persona ung-mann --scenario "test validation"
+form-tester test <url> --auto
+form-tester test <url> --auto --pnr 12345 --persona ung-mann --scenario "test validation"
+
+# Interactive CLI:
+form-tester
 ```
 
 Persona IDs: `ung-mann`, `gravid-kvinne`, `eldre-kvinne`, `kronisk-syk-mann`. Defaults to "noen" (neutral answers) if omitted.
@@ -43,4 +50,3 @@ Use `/people` to rescan the visible person list and get a numbered selection pro
 ## Playwright CLI
 
 You can also run `playwright-cli` commands directly when needed.
-

@@ -1,22 +1,27 @@
 # Form Tester — Copilot Instructions
 
-You have access to a form-testing CLI tool (`form-tester.js`) that automates testing of /skjemautfyller forms using Playwright CLI.
+You have access to a form-testing CLI tool (`form-tester`) that automates testing of /skjemautfyller forms using Playwright CLI.
 
 ## Setup
 
+User must install globally first:
 ```bash
-npx form-tester install
+npm install -g form-tester
+form-tester install
 ```
 
 ## Running the CLI
 
 ```bash
-# macOS/Linux
-node form-tester.js
+# Interactive
+form-tester
 
-# Windows (PowerShell)
-node .\form-tester.js
+# Non-interactive (best for AI agents)
+form-tester test <url> --auto
+form-tester test <url> --auto --pnr 12345 --persona ung-mann --scenario "test validation"
 ```
+
+Persona IDs: `ung-mann`, `gravid-kvinne`, `eldre-kvinne`, `kronisk-syk-mann`. Defaults to "noen" if omitted.
 
 ## Commands
 
@@ -58,10 +63,10 @@ When `/test` is triggered:
 - Provide a full /skjemautfyller URL. If `pnr` is missing, the CLI will prompt.
 - All screenshots MUST use `--full-page` to capture the entire page.
 - Use `/save {label}` to capture additional snapshots into the output folder.
-- If an error modal appears on submit, open DevTools → Network, retry once, and capture the Correlation ID header.
+- If an error modal appears on submit, open DevTools -> Network, retry once, and capture the Correlation ID header.
 
 ## Post-Submit Verification
 
 After submission, read the modal text:
-- If it mentions Dokumenter storage → navigate to `/dokumenter?pnr={PNR}`, verify the document appears, and capture it (screenshot for HTML, download for PDF).
-- If it does NOT mention Dokumenter → skip verification, note in test_results.txt.
+- If it mentions Dokumenter storage -> navigate to `/dokumenter?pnr={PNR}`, verify the document appears, and capture it (screenshot for HTML, download for PDF).
+- If it does NOT mention Dokumenter -> skip verification, note in test_results.txt.

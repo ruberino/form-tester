@@ -1,13 +1,24 @@
 # Form Tester Skill Instructions
 
-Setup (run once):
+Install (user runs once):
 ```
-npx form-tester install
+npm install -g form-tester
+```
+
+Install skill files:
+```
+form-tester install
 ```
 
 Run the CLI:
 ```
-npx form-tester
+form-tester
+```
+
+Non-interactive mode (best for AI agents):
+```
+form-tester test <url> --auto
+form-tester test <url> --auto --pnr 12345 --persona ung-mann
 ```
 
 Commands:
@@ -23,7 +34,7 @@ Commands:
 ```
 
 Notes:
-- New users: place this skill under .claude/skills/form-tester/ in your repo, then run /skills to scan/reload (or /restart).
+- New users: run `npm install -g form-tester` then `form-tester install` in your project.
 - Provide a full /skjemautfyller URL. If `pnr` is missing, the CLI will prompt.
 - The CLI opens the form with Playwright CLI, saves an initial snapshot + screenshot, and prints next-step commands.
 - Use `/save {label}` to capture additional snapshots + screenshots into the same output folder.
@@ -56,4 +67,3 @@ Dokumenter verification (only when modal confirms storage):
 5. If the document opens as a PDF viewer: download the PDF instead of screenshotting. Use `playwright-cli pdf --filename "$OUTPUT_DIR/document.pdf"` or save it via the download.
 6. If the document does NOT open (XML format, no new tab, or other): note the document type in test_results.txt and skip the screenshot/download.
 7. Include the document verification results in test_results.txt (document title, whether it matched the form h1, document type: HTML/PDF/XML).
-
