@@ -1,0 +1,23 @@
+# Output & session data
+output/
+.playwright-cli/
+.playwright/
+
+# Config with sensitive data
+form-tester.config.json
+
+# Local Claude Code settings
+.claude/settings.local.json
+
+# Archive
+*.zip
+
+# Node
+node_modules/
+
+# Original nested directory (flattened to root)
+form-tester/
+
+# OS
+.DS_Store
+Thumbs.db
