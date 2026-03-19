@@ -6,7 +6,7 @@ const { spawn, execSync } = require("child_process");
 
 const CONFIG_PATH = path.join(process.cwd(), "form-tester.config.json");
 const OUTPUT_BASE = path.resolve(process.cwd(), "output");
-const LOCAL_VERSION = "0.4.3";
+const LOCAL_VERSION = "0.5.0";
 const RECOMMENDED_PERSON = "Uromantisk Direktør";
 
 const PERSONAS = [
@@ -880,6 +880,10 @@ async function handleTest(url, config) {
 }
 
 async function handleTestAuto(url, config, flags) {
+  const v = flags.verbosity || "normal";
+  const log = (msg) => { if (v !== "silent") console.log(msg); };
+  const verbose = (msg) => { if (v === "verbose") console.log(msg); };
+
   // Resolve PNR
   const pnr = flags.pnr || config.pnr;
   if (!pnr) {
@@ -889,6 +893,7 @@ async function handleTestAuto(url, config, flags) {
   const fullUrl = extractPnrFromUrl(url) ? url : setPnrOnUrl(url, pnr);
   config.pnr = pnr;
   saveConfig(config);
+  verbose(`URL: ${fullUrl}`);
 
   // Resolve persona
   let personaChoice;
@@ -896,14 +901,14 @@ async function handleTestAuto(url, config, flags) {
   if (personaId) {
     const found = getPersonaById(personaId);
     if (found) {
-      console.log(`Persona: ${found.name} — ${found.description}`);
+      log(`Persona: ${found.name} — ${found.description}`);
       personaChoice = { type: "preset", persona: found };
     } else {
-      console.log(`Unknown persona "${personaId}", using Noen.`);
+      log(`Unknown persona "${personaId}", using Noen.`);
       personaChoice = { type: "noen", persona: null };
     }
   } else {
-    console.log("Persona: Noen — nøytrale svar (auto)");
+    log("Persona: Noen — nøytrale svar (auto)");
     personaChoice = { type: "noen", persona: null };
   }
 
@@ -911,7 +916,7 @@ async function handleTestAuto(url, config, flags) {
   const scenarioChoice = flags.scenario
     ? { type: "custom", description: flags.scenario }
     : { type: "default", description: "Standard test" };
-  console.log(`Scenario: ${scenarioChoice.description}`);
+  log(`Scenario: ${scenarioChoice.description}`);
 
   // Create output directory
   const formId = sanitizeSegment(extractFormId(fullUrl));
@@ -934,16 +939,17 @@ async function handleTestAuto(url, config, flags) {
   fs.writeFileSync(path.join(outputDir, "scenario.json"), JSON.stringify(scenarioChoice, null, 2));
 
   // Open and take initial full-page screenshot
-  console.log("Opening form with Playwright CLI...");
+  log("Opening form with Playwright CLI...");
   await runPlaywrightCli(["open", fullUrl]);
   await runPlaywrightCli(["snapshot", "--filename", path.join(outputDir, "page_open.yml")]);
   await runPlaywrightCli(["screenshot", "--filename", path.join(outputDir, "page_open.png"), "--full-page"]);
-  console.log("Saved: page_open.yml + page_open.png (full-page)");
+  log("Saved: page_open.yml + page_open.png (full-page)");
 
   // Auto-select person (try recommended, then first available)
   let options = extractPersonsFromSnapshotFile(path.join(outputDir, "page_open.yml"));
   if (!options.length) {
     for (let attempt = 0; attempt < 3; attempt++) {
+      verbose(`Scanning for person options (attempt ${attempt + 1})...`);
       await sleep(1500);
       options = await fetchPersonOptions();
       if (options.length) break;
@@ -952,7 +958,7 @@ async function handleTestAuto(url, config, flags) {
   if (options.length) {
     options = prioritizeRecommended(options, RECOMMENDED_PERSON);
     const chosen = options[0];
-    console.log(`Auto-selected person: ${chosen}`);
+    log(`Auto-selected person: ${chosen}`);
     config.lastPerson = chosen;
     saveConfig(config);
   }
@@ -960,18 +966,23 @@ async function handleTestAuto(url, config, flags) {
   // Take form loaded screenshot after person selection
   await runPlaywrightCli(["snapshot", "--filename", path.join(outputDir, "form_loaded.yml")]);
   await runPlaywrightCli(["screenshot", "--filename", path.join(outputDir, "form_loaded.png"), "--full-page"]);
-  console.log("Saved: form_loaded.yml + form_loaded.png (full-page)");
+  log("Saved: form_loaded.yml + form_loaded.png (full-page)");
 
   const dokumenterUrl = resolveDokumenterUrl(config);
-  console.log(`\nOutput folder: ${outputDir}`);
-  if (dokumenterUrl) {
-    console.log(`Dokumenter URL: ${dokumenterUrl}`);
+
+  // Always print output folder (even in silent mode)
+  console.log(`Output folder: ${outputDir}`);
+
+  if (v !== "silent") {
+    if (dokumenterUrl) {
+      console.log(`Dokumenter URL: ${dokumenterUrl}`);
+    }
+    console.log("");
+    console.log("IMPORTANT: All screenshots MUST use --full-page to capture the entire page.");
+    console.log("Example: playwright-cli screenshot --filename \"path/to/file.png\" --full-page");
+    console.log("");
+    printNextSteps(outputDir, dokumenterUrl || "/dokumenter?pnr={PNR}");
   }
-  console.log("");
-  console.log("IMPORTANT: All screenshots MUST use --full-page to capture the entire page.");
-  console.log("Example: playwright-cli screenshot --filename \"path/to/file.png\" --full-page");
-  console.log("");
-  printNextSteps(outputDir, dokumenterUrl || "/dokumenter?pnr={PNR}");
 }
 
 async function handleCommand(line, config) {
@@ -1131,13 +1142,17 @@ async function main() {
     const config = loadConfig();
     const url = args.find((a) => a.startsWith("http"));
     if (!url) {
-      console.error("Usage: form-tester test <url> --auto [--pnr <pnr>] [--persona <id>] [--scenario <text>]");
+      console.error("Usage: form-tester test <url> --auto [--pnr <pnr>] [--persona <id>] [--scenario <text>] [--silent|--verbose]");
       process.exit(1);
     }
-    const pnrFlag = args[args.indexOf("--pnr") + 1];
-    const personaFlag = args[args.indexOf("--persona") + 1];
-    const scenarioFlag = args[args.indexOf("--scenario") + 1];
-    await handleTestAuto(url, config, { pnr: pnrFlag, persona: personaFlag, scenario: scenarioFlag });
+    const flagVal = (flag) => args.includes(flag) ? args[args.indexOf(flag) + 1] : undefined;
+    const verbosity = args.includes("--silent") ? "silent" : args.includes("--verbose") ? "verbose" : "normal";
+    await handleTestAuto(url, config, {
+      pnr: flagVal("--pnr"),
+      persona: flagVal("--persona"),
+      scenario: flagVal("--scenario"),
+      verbosity,
+    });
     process.exit(0);
   }
 

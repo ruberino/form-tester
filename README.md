@@ -69,6 +69,42 @@ If Copilot doesn't recognize the skill:
 1. Make sure `.claude/skills/form-tester/` exists in your project (run `form-tester install`)
 2. Run `/skills` in the Copilot CLI to reload skills, or restart the session
 
+## Skip permission prompts
+
+By default, AI agents will ask permission for every shell command. To run without interruptions, pre-allow the relevant tools.
+
+### Claude Code
+
+Add to your project's `.claude/settings.local.json` (or global `~/.claude/settings.json`):
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "Skill(form-tester)",
+      "Bash(form-tester:*)",
+      "Bash(playwright-cli:*)"
+    ]
+  }
+}
+```
+
+Or use the Claude Code CLI:
+```bash
+claude config add permissions.allow "Skill(form-tester)"
+claude config add permissions.allow "Bash(form-tester:*)"
+claude config add permissions.allow "Bash(playwright-cli:*)"
+```
+
+### GitHub Copilot
+
+In Copilot CLI, use auto-approve mode:
+```bash
+copilot --auto-approve
+```
+
+Or approve the tool categories when first prompted and select "Always allow".
+
 ## Test Output
 
 Test runs are saved to `output/{form-id}/{timestamp}/` with:
