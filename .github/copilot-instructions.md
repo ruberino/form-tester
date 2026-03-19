@@ -62,6 +62,7 @@ When `/test` is triggered:
 
 - Provide a full /skjemautfyller URL. If `pnr` is missing, the CLI will prompt.
 - All screenshots MUST use `--full-page` to capture the entire page.
+- Take a full-page screenshot EVERY TIME the page changes: after clicking action buttons (Neste, Forrige, Send inn), after step/page transitions, after validation errors, after modals, and after submission.
 - Use `/save {label}` to capture additional snapshots into the output folder.
 - If an error modal appears on submit, open DevTools -> Network, retry once, and capture the Correlation ID header.
 

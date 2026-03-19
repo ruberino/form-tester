@@ -45,6 +45,7 @@ Notes:
 - Use `--help` or `-h` to print the command list without starting the prompt.
 - Playwright CLI commands are available from this skill when needed.
 - IMPORTANT: All screenshots taken during a test run MUST use `--full-page` to capture the entire page, not just the viewport. This applies to every screenshot command: `playwright-cli screenshot --filename "..." --full-page`
+- IMPORTANT: Take a full-page screenshot EVERY TIME the page changes. This includes: after clicking any action button (Neste, Forrige, Send inn, etc.), after a step/page transition, after form validation errors appear, after modals open, and after submission. Name screenshots descriptively (e.g., step1_filled.png, step2_before_submit.png, submit_result.png).
 
 Test flow (when /test is triggered):
 IMPORTANT: Each prompt below MUST be asked as a separate message to the user. Wait for the user's response before proceeding to the next step. Do NOT combine multiple prompts into one message.
