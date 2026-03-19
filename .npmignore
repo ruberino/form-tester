@@ -1,8 +1,7 @@
 output/
 .playwright-cli/
 .playwright/
-.github/
 .claude/settings.local.json
 form-tester.config.json
-form-tester/
+/form-tester/
 *.zip
