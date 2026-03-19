@@ -6,7 +6,7 @@ const { spawn, execSync } = require("child_process");
 
 const CONFIG_PATH = path.join(process.cwd(), "form-tester.config.json");
 const OUTPUT_BASE = path.resolve(process.cwd(), "output");
-const LOCAL_VERSION = "0.4.2";
+const LOCAL_VERSION = "0.4.3";
 const RECOMMENDED_PERSON = "Uromantisk Direktør";
 
 const PERSONAS = [
@@ -430,7 +430,7 @@ function printNextSteps(outputDir, dokumenterUrl) {
   );
   console.log(`- Or use: /save step`);
   console.log(
-    `- Screenshot before submit: playwright-cli screenshot --filename "${path.join(outputDir, "before_submit.png")}"`,
+    `- Screenshot before submit: playwright-cli screenshot --filename "${path.join(outputDir, "before_submit.png")}" --full-page`,
   );
   console.log("- Submit only when validation errors are cleared.");
   console.log(
@@ -702,8 +702,8 @@ async function saveArtifacts(config, label) {
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const base = path.join(config.lastRunDir, `${safeLabel}_${timestamp}`);
   await runPlaywrightCli(["snapshot", "--filename", `${base}.yml`]);
-  await runPlaywrightCli(["screenshot", "--filename", `${base}.png`]);
-  console.log(`Saved: ${base}.yml and ${base}.png`);
+  await runPlaywrightCli(["screenshot", "--filename", `${base}.png`, "--full-page"]);
+  console.log(`Saved: ${base}.yml and ${base}.png (full-page)`);
 }
 
 async function handleSetup() {
@@ -862,6 +862,7 @@ async function handleTest(url, config) {
     "screenshot",
     "--filename",
     path.join(outputDir, "page_open.png"),
+    "--full-page",
   ]);
 
   await promptPersonSelection(config);
@@ -932,11 +933,12 @@ async function handleTestAuto(url, config, flags) {
   }
   fs.writeFileSync(path.join(outputDir, "scenario.json"), JSON.stringify(scenarioChoice, null, 2));
 
-  // Open and snapshot
+  // Open and take initial full-page screenshot
   console.log("Opening form with Playwright CLI...");
   await runPlaywrightCli(["open", fullUrl]);
   await runPlaywrightCli(["snapshot", "--filename", path.join(outputDir, "page_open.yml")]);
-  await runPlaywrightCli(["screenshot", "--filename", path.join(outputDir, "page_open.png")]);
+  await runPlaywrightCli(["screenshot", "--filename", path.join(outputDir, "page_open.png"), "--full-page"]);
+  console.log("Saved: page_open.yml + page_open.png (full-page)");
 
   // Auto-select person (try recommended, then first available)
   let options = extractPersonsFromSnapshotFile(path.join(outputDir, "page_open.yml"));
@@ -955,11 +957,20 @@ async function handleTestAuto(url, config, flags) {
     saveConfig(config);
   }
 
+  // Take form loaded screenshot after person selection
+  await runPlaywrightCli(["snapshot", "--filename", path.join(outputDir, "form_loaded.yml")]);
+  await runPlaywrightCli(["screenshot", "--filename", path.join(outputDir, "form_loaded.png"), "--full-page"]);
+  console.log("Saved: form_loaded.yml + form_loaded.png (full-page)");
+
   const dokumenterUrl = resolveDokumenterUrl(config);
-  console.log(`Output folder: ${outputDir}`);
+  console.log(`\nOutput folder: ${outputDir}`);
   if (dokumenterUrl) {
     console.log(`Dokumenter URL: ${dokumenterUrl}`);
   }
+  console.log("");
+  console.log("IMPORTANT: All screenshots MUST use --full-page to capture the entire page.");
+  console.log("Example: playwright-cli screenshot --filename \"path/to/file.png\" --full-page");
+  console.log("");
   printNextSteps(outputDir, dokumenterUrl || "/dokumenter?pnr={PNR}");
 }
 
