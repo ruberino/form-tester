@@ -32,7 +32,9 @@ Edit `form-tester.config.json` and set your `pnr`.
 
 ## Usage
 
-### Non-interactive (recommended for AI agents)
+### Default: non-interactive (`--auto`)
+
+AI agents (Claude Code, Copilot) will use `--auto` mode by default. No prompts, just runs the test:
 
 ```bash
 form-tester test <url> --auto
@@ -43,6 +45,8 @@ Persona IDs: `ung-mann`, `gravid-kvinne`, `eldre-kvinne`, `kronisk-syk-mann`
 
 ### Interactive CLI
 
+For manual use without an AI agent:
+
 ```bash
 form-tester
 ```
@@ -51,11 +55,19 @@ Commands: `/setup`, `/update`, `/version`, `/people`, `/test {url}`, `/save {lab
 
 ### Claude Code
 
-The skill is automatically detected when you open the project. Use the `/form-tester` skill.
+After `form-tester install`, the skill is automatically detected. Use the `/form-tester` skill or just ask Claude to test a form.
+
+If the skill isn't showing up:
+1. Make sure `.claude/skills/form-tester/` exists in your project (run `form-tester install`)
+2. Restart Claude Code or start a new conversation
 
 ### GitHub Copilot
 
-Copilot reads instructions from `.github/copilot-instructions.md` automatically.
+After `form-tester install`, Copilot reads `.github/copilot-instructions.md` and `.claude/skills/` automatically.
+
+If Copilot doesn't recognize the skill:
+1. Make sure `.claude/skills/form-tester/` exists in your project (run `form-tester install`)
+2. Run `/skills` in the Copilot CLI to reload skills, or restart the session
 
 ## Test Output
 
