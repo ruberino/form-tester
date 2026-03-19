@@ -18,5 +18,9 @@
     "skill",
     "skjemautfyller"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ruberino/form-tester"
+  },
   "license": "MIT"
 }
