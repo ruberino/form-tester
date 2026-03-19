@@ -6,7 +6,7 @@ const { spawn, execSync } = require("child_process");
 
 const CONFIG_PATH = path.join(__dirname, "form-tester.config.json");
 const OUTPUT_BASE = path.resolve(__dirname, "output");
-const LOCAL_VERSION = "0.3.5";
+const LOCAL_VERSION = "0.4.0";
 const RECOMMENDED_PERSON = "Uromantisk Direktør";
 
 const PERSONAS = [
@@ -878,6 +878,91 @@ async function handleTest(url, config) {
   );
 }
 
+async function handleTestAuto(url, config, flags) {
+  // Resolve PNR
+  const pnr = flags.pnr || config.pnr;
+  if (!pnr) {
+    console.error("No PNR available. Pass --pnr <value> or set it in form-tester.config.json");
+    process.exit(1);
+  }
+  const fullUrl = extractPnrFromUrl(url) ? url : setPnrOnUrl(url, pnr);
+  config.pnr = pnr;
+  saveConfig(config);
+
+  // Resolve persona
+  let personaChoice;
+  const personaId = flags.persona;
+  if (personaId) {
+    const found = getPersonaById(personaId);
+    if (found) {
+      console.log(`Persona: ${found.name} — ${found.description}`);
+      personaChoice = { type: "preset", persona: found };
+    } else {
+      console.log(`Unknown persona "${personaId}", using Noen.`);
+      personaChoice = { type: "noen", persona: null };
+    }
+  } else {
+    console.log("Persona: Noen — nøytrale svar (auto)");
+    personaChoice = { type: "noen", persona: null };
+  }
+
+  // Resolve scenario
+  const scenarioChoice = flags.scenario
+    ? { type: "custom", description: flags.scenario }
+    : { type: "default", description: "Standard test" };
+  console.log(`Scenario: ${scenarioChoice.description}`);
+
+  // Create output directory
+  const formId = sanitizeSegment(extractFormId(fullUrl));
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const outputDir = path.join(OUTPUT_BASE, formId, timestamp);
+  fs.mkdirSync(outputDir, { recursive: true });
+
+  config.lastTestUrl = fullUrl;
+  config.lastRunDir = outputDir;
+  saveConfig(config);
+
+  // Save persona and scenario
+  if (personaChoice.type === "preset") {
+    fs.writeFileSync(path.join(outputDir, "persona.json"), JSON.stringify(personaChoice.persona, null, 2));
+  } else {
+    fs.writeFileSync(path.join(outputDir, "persona.json"), JSON.stringify(
+      { id: "noen", name: "Noen", description: "Nøytrale svar", traits: {} }, null, 2,
+    ));
+  }
+  fs.writeFileSync(path.join(outputDir, "scenario.json"), JSON.stringify(scenarioChoice, null, 2));
+
+  // Open and snapshot
+  console.log("Opening form with Playwright CLI...");
+  await runPlaywrightCli(["open", fullUrl]);
+  await runPlaywrightCli(["snapshot", "--filename", path.join(outputDir, "page_open.yml")]);
+  await runPlaywrightCli(["screenshot", "--filename", path.join(outputDir, "page_open.png")]);
+
+  // Auto-select person (try recommended, then first available)
+  let options = extractPersonsFromSnapshotFile(path.join(outputDir, "page_open.yml"));
+  if (!options.length) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await sleep(1500);
+      options = await fetchPersonOptions();
+      if (options.length) break;
+    }
+  }
+  if (options.length) {
+    options = prioritizeRecommended(options, RECOMMENDED_PERSON);
+    const chosen = options[0];
+    console.log(`Auto-selected person: ${chosen}`);
+    config.lastPerson = chosen;
+    saveConfig(config);
+  }
+
+  const dokumenterUrl = resolveDokumenterUrl(config);
+  console.log(`Output folder: ${outputDir}`);
+  if (dokumenterUrl) {
+    console.log(`Dokumenter URL: ${dokumenterUrl}`);
+  }
+  printNextSteps(outputDir, dokumenterUrl || "/dokumenter?pnr={PNR}");
+}
+
 async function handleCommand(line, config) {
   const trimmed = line.trim();
   if (!trimmed) return;
@@ -1028,6 +1113,20 @@ async function main() {
       console.log(`Installing form-tester skills to ${targetDir} ...\n`);
     }
     install(targetDir, isGlobal);
+    process.exit(0);
+  }
+
+  if (args[0] === "test" && args.includes("--auto")) {
+    const config = loadConfig();
+    const url = args.find((a) => a.startsWith("http"));
+    if (!url) {
+      console.error("Usage: form-tester test <url> --auto [--pnr <pnr>] [--persona <id>] [--scenario <text>]");
+      process.exit(1);
+    }
+    const pnrFlag = args[args.indexOf("--pnr") + 1];
+    const personaFlag = args[args.indexOf("--persona") + 1];
+    const scenarioFlag = args[args.indexOf("--scenario") + 1];
+    await handleTestAuto(url, config, { pnr: pnrFlag, persona: personaFlag, scenario: scenarioFlag });
     process.exit(0);
   }
 

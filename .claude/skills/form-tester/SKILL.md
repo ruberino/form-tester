@@ -10,8 +10,14 @@ allowed-tools: Bash(powershell:*), Bash(playwright-cli:*), Bash(npx form-tester:
 
 ```bash
 npx form-tester install   # one-time setup
-npx form-tester           # run the CLI
+npx form-tester           # interactive CLI
+
+# Non-interactive mode (no prompts, best for AI agents):
+npx form-tester test <url> --auto
+npx form-tester test <url> --auto --pnr 12345 --persona ung-mann --scenario "test validation"
 ```
+
+Persona IDs: `ung-mann`, `gravid-kvinne`, `eldre-kvinne`, `kronisk-syk-mann`. Defaults to "noen" (neutral answers) if omitted.
 
 ## Commands
 
