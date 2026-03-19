@@ -1,6 +1,6 @@
 {
   "name": "form-tester",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "description": "AI-powered form testing skill for /skjemautfyller forms using Playwright CLI. Works with Claude Code and GitHub Copilot.",
   "main": "form-tester.js",
   "bin": {

@@ -6,7 +6,7 @@ const { spawn, execSync } = require("child_process");
 
 const CONFIG_PATH = path.join(__dirname, "form-tester.config.json");
 const OUTPUT_BASE = path.resolve(__dirname, "output");
-const LOCAL_VERSION = "0.3.4";
+const LOCAL_VERSION = "0.3.5";
 const RECOMMENDED_PERSON = "Uromantisk Direktør";
 
 const PERSONAS = [
@@ -272,7 +272,11 @@ function isPlaywrightCliAvailable() {
 
 function runCommand(command, args, options = {}) {
   return new Promise((resolve) => {
-    const child = spawn(command, args, { stdio: "inherit", ...options });
+    const child = spawn(command, args, {
+      stdio: "inherit",
+      shell: process.platform === "win32",
+      ...options,
+    });
     child.on("error", (err) => {
       console.error(`Failed to launch ${command}: ${err.message}`);
       resolve(1);
@@ -284,9 +288,9 @@ function runCommand(command, args, options = {}) {
 function runPlaywrightCli(args) {
   return new Promise((resolve) => {
     const spec = getPlaywrightCommandSpec();
-    const child = spawn(spec.command, [...spec.args, ...args], {
-      stdio: "inherit",
-    });
+    const spawnOpts = { stdio: "inherit" };
+    if (spec.shell) spawnOpts.shell = true;
+    const child = spawn(spec.command, [...spec.args, ...args], spawnOpts);
     child.on("error", (err) => {
       console.error(`Failed to launch ${spec.command}: ${err.message}`);
       resolve(1);
@@ -298,10 +302,12 @@ function runPlaywrightCli(args) {
 function runPlaywrightCliCapture(args) {
   return new Promise((resolve) => {
     const spec = getPlaywrightCommandSpec();
+    const captureOpts = { stdio: ["ignore", "pipe", "pipe"] };
+    if (spec.shell) captureOpts.shell = true;
     const child = spawn(
       spec.command,
       [...spec.args, ...args],
-      { stdio: ["ignore", "pipe", "pipe"] },
+      captureOpts,
     );
     let stdout = "";
     let stderr = "";
@@ -328,6 +334,7 @@ function getPlaywrightCommandSpec() {
   const command = getPlaywrightCommand();
   const lower = command.toLowerCase();
   if (process.platform === "win32" && (lower.endsWith(".cmd") || lower.endsWith(".ps1"))) {
+    // Try to resolve the actual .js entry point to avoid shell/spawn issues
     const nodeDir = path.dirname(command);
     const cliPath = path.join(
       nodeDir,
@@ -337,16 +344,12 @@ function getPlaywrightCommandSpec() {
       "playwright-cli.js",
     );
     if (fs.existsSync(cliPath)) {
-      return { command: process.execPath, args: [cliPath] };
+      return { command: process.execPath, args: [cliPath], shell: false };
     }
+    // Fallback: run via node process.execPath with the .cmd/.ps1 content
+    return { command, args: [], shell: true };
   }
-  if (lower.endsWith(".ps1")) {
-    return {
-      command: "powershell",
-      args: ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", command],
-    };
-  }
-  return { command, args: [] };
+  return { command, args: [], shell: false };
 }
 
 function findRepoRoot(startDir) {
