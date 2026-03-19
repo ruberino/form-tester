@@ -68,5 +68,10 @@ When `/test` is triggered:
 ## Post-Submit Verification
 
 After submission, read the modal text:
-- If it mentions Dokumenter storage -> navigate to `/dokumenter?pnr={PNR}`, verify the document appears, and capture it (screenshot for HTML, download for PDF).
+- If it mentions Dokumenter storage -> navigate to `/dokumenter?pnr={PNR}`, verify the document appears.
 - If it does NOT mention Dokumenter -> skip verification, note in test_results.txt.
+
+Document capture depends on format:
+- **PDF documents**: download the file (`playwright-cli pdf --filename "..." `). Do NOT screenshot PDFs.
+- **HTML documents**: take a full-page screenshot of the ENTIRE document (`playwright-cli screenshot --filename "..." --full-page`). HTML documents cannot be downloaded, so the screenshot is the primary artifact.
+- **XML/other**: note the type in test_results.txt and skip capture.

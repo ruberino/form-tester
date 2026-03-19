@@ -63,7 +63,8 @@ Dokumenter verification (only when modal confirms storage):
 1. Navigate to `/dokumenter?pnr={PNR}` and select the same person used during form fill.
 2. The document list loads sorted newest first. The first entry should match the form title.
 3. Click "Se detaljer" on the first document, then click "Åpne dokumentet".
-4. If the document opens in a new tab as HTML: switch to that tab, take a full-page screenshot (`--full-page`), save snapshot and raw HTML.
-5. If the document opens as a PDF viewer: download the PDF instead of screenshotting. Use `playwright-cli pdf --filename "$OUTPUT_DIR/document.pdf"` or save it via the download.
-6. If the document does NOT open (XML format, no new tab, or other): note the document type in test_results.txt and skip the screenshot/download.
-7. Include the document verification results in test_results.txt (document title, whether it matched the form h1, document type: HTML/PDF/XML).
+4. IMPORTANT - document capture depends on format:
+   - PDF documents: DOWNLOAD the file. Use `playwright-cli pdf --filename "$OUTPUT_DIR/document.pdf"` or save via browser download. Do NOT screenshot PDFs.
+   - HTML documents: Take a FULL-PAGE screenshot of the ENTIRE document (`playwright-cli screenshot --filename "$OUTPUT_DIR/document_screenshot.png" --full-page`). HTML documents cannot be downloaded as files, so the full-page screenshot is the primary artifact. Also save the snapshot and raw HTML.
+   - XML/other formats: Note the document type in test_results.txt and skip capture.
+5. Include the document verification results in test_results.txt (document title, whether it matched the form h1, document type: HTML/PDF/XML).
