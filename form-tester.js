@@ -6,7 +6,7 @@ const { spawn, execSync } = require("child_process");
 
 const CONFIG_PATH = path.join(__dirname, "form-tester.config.json");
 const OUTPUT_BASE = path.resolve(__dirname, "output");
-const LOCAL_VERSION = "0.2.3";
+const LOCAL_VERSION = "0.3.0";
 const RECOMMENDED_PERSON = "Uromantisk Direktør";
 
 const PERSONAS = [
@@ -934,11 +934,70 @@ async function handleCommand(line, config) {
   }
 }
 
+function copyDirSync(src, dest) {
+  fs.mkdirSync(dest, { recursive: true });
+  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    const srcPath = path.join(src, entry.name);
+    const destPath = path.join(dest, entry.name);
+    if (entry.isDirectory()) {
+      copyDirSync(srcPath, destPath);
+    } else {
+      fs.copyFileSync(srcPath, destPath);
+    }
+  }
+}
+
+function install(targetDir) {
+  const pkgDir = __dirname;
+  const skillsSrc = path.join(pkgDir, ".claude", "skills");
+  const copilotSrc = path.join(pkgDir, ".github", "copilot-instructions.md");
+  const configSrc = path.join(pkgDir, "form-tester.config.example.json");
+
+  // Copy Claude Code skills
+  const skillsDest = path.join(targetDir, ".claude", "skills");
+  for (const skill of ["form-tester", "playwright-cli"]) {
+    const src = path.join(skillsSrc, skill);
+    if (fs.existsSync(src)) {
+      const dest = path.join(skillsDest, skill);
+      copyDirSync(src, dest);
+      console.log(`  Installed .claude/skills/${skill}/`);
+    }
+  }
+
+  // Copy Copilot instructions
+  if (fs.existsSync(copilotSrc)) {
+    const copilotDest = path.join(targetDir, ".github", "copilot-instructions.md");
+    fs.mkdirSync(path.dirname(copilotDest), { recursive: true });
+    fs.copyFileSync(copilotSrc, copilotDest);
+    console.log("  Installed .github/copilot-instructions.md");
+  }
+
+  // Copy config example
+  if (fs.existsSync(configSrc)) {
+    const configDest = path.join(targetDir, "form-tester.config.example.json");
+    fs.copyFileSync(configSrc, configDest);
+    console.log("  Installed form-tester.config.example.json");
+  }
+
+  console.log("\nDone! Next steps:");
+  console.log("  1. cp form-tester.config.example.json form-tester.config.json");
+  console.log('  2. Edit form-tester.config.json and set your "pnr"');
+  console.log("  3. Run: npx form-tester");
+}
+
 async function main() {
+  const args = process.argv.slice(2);
+
+  if (args[0] === "install") {
+    const targetDir = args[1] ? path.resolve(args[1]) : process.cwd();
+    console.log(`Installing form-tester skills to ${targetDir} ...\n`);
+    install(targetDir);
+    process.exit(0);
+  }
+
   const config = loadConfig();
   await handleVersionMismatch(config);
 
-  const args = process.argv.slice(2);
   if (args.includes("--help") || args.includes("-h")) {
     printHelp();
     process.exit(0);
