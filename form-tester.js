@@ -6,7 +6,7 @@ const { spawn, execSync } = require("child_process");
 
 const CONFIG_PATH = path.join(__dirname, "form-tester.config.json");
 const OUTPUT_BASE = path.resolve(__dirname, "output");
-const LOCAL_VERSION = "0.3.3";
+const LOCAL_VERSION = "0.3.4";
 const RECOMMENDED_PERSON = "Uromantisk Direktør";
 
 const PERSONAS = [
@@ -947,36 +947,39 @@ function copyDirSync(src, dest) {
   }
 }
 
-function install(targetDir) {
+function install(targetDir, isGlobal) {
   const pkgDir = __dirname;
   const skillsSrc = path.join(pkgDir, ".claude", "skills");
   const copilotSrc = path.join(pkgDir, ".github", "copilot-instructions.md");
   const configSrc = path.join(pkgDir, "form-tester.config.example.json");
 
   // Copy Claude Code skills
-  const skillsDest = path.join(targetDir, ".claude", "skills");
+  const skillsDest = isGlobal
+    ? path.join(targetDir, "skills")
+    : path.join(targetDir, ".claude", "skills");
   for (const skill of ["form-tester", "playwright-cli"]) {
     const src = path.join(skillsSrc, skill);
     if (fs.existsSync(src)) {
       const dest = path.join(skillsDest, skill);
       copyDirSync(src, dest);
-      console.log(`  Installed .claude/skills/${skill}/`);
+      console.log(`  Installed ${isGlobal ? "~/.claude" : ".claude"}/skills/${skill}/`);
     }
   }
 
-  // Copy Copilot instructions
-  if (fs.existsSync(copilotSrc)) {
-    const copilotDest = path.join(targetDir, ".github", "copilot-instructions.md");
-    fs.mkdirSync(path.dirname(copilotDest), { recursive: true });
-    fs.copyFileSync(copilotSrc, copilotDest);
-    console.log("  Installed .github/copilot-instructions.md");
-  }
+  // Project-only files (skip for global install)
+  if (!isGlobal) {
+    if (fs.existsSync(copilotSrc)) {
+      const copilotDest = path.join(targetDir, ".github", "copilot-instructions.md");
+      fs.mkdirSync(path.dirname(copilotDest), { recursive: true });
+      fs.copyFileSync(copilotSrc, copilotDest);
+      console.log("  Installed .github/copilot-instructions.md");
+    }
 
-  // Copy config example
-  if (fs.existsSync(configSrc)) {
-    const configDest = path.join(targetDir, "form-tester.config.example.json");
-    fs.copyFileSync(configSrc, configDest);
-    console.log("  Installed form-tester.config.example.json");
+    if (fs.existsSync(configSrc)) {
+      const configDest = path.join(targetDir, "form-tester.config.example.json");
+      fs.copyFileSync(configSrc, configDest);
+      console.log("  Installed form-tester.config.example.json");
+    }
   }
 
   // Install playwright-cli globally if not already available
@@ -1009,9 +1012,19 @@ async function main() {
   const args = process.argv.slice(2);
 
   if (args[0] === "install") {
-    const targetDir = args[1] ? path.resolve(args[1]) : process.cwd();
-    console.log(`Installing form-tester skills to ${targetDir} ...\n`);
-    install(targetDir);
+    const isGlobal = args.includes("--global") || args.includes("-g");
+    const remaining = args.slice(1).filter((a) => a !== "--global" && a !== "-g");
+    let targetDir;
+    if (isGlobal) {
+      const home = process.env.HOME || process.env.USERPROFILE;
+      targetDir = path.join(home, ".claude");
+      // Global installs skills directly into ~/.claude/skills/
+      console.log(`Installing form-tester skills globally to ${targetDir} ...\n`);
+    } else {
+      targetDir = remaining[0] ? path.resolve(remaining[0]) : process.cwd();
+      console.log(`Installing form-tester skills to ${targetDir} ...\n`);
+    }
+    install(targetDir, isGlobal);
     process.exit(0);
   }
 
