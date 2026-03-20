@@ -6,7 +6,7 @@ const { spawn, execSync } = require("child_process");
 
 const CONFIG_PATH = path.join(process.cwd(), "form-tester.config.json");
 const OUTPUT_BASE = path.resolve(process.cwd(), "output");
-const LOCAL_VERSION = "0.8.0";
+const LOCAL_VERSION = "0.8.1";
 const RECOMMENDED_PERSON = "Uromantisk Direktør";
 
 // Recording — persisted to disk so `form-tester exec` can append across processes
@@ -466,18 +466,26 @@ function clearConsole() {
 function printHelp() {
   console.log(
     [
-      "Commands:",
-      "  /setup                      Install Playwright CLI + skills if missing",
-      "  /update                     Update repo (if git), Playwright CLI, and skills",
-      "  /version                    Show local skill version",
+      "",
+      "Subcommands (run directly):",
+      "  form-tester install [--global]          Install skill files into project or ~/.claude/skills/",
+      "  form-tester test <url> --auto           Non-interactive test (for AI agents)",
+      "  form-tester test <url> --human          Interactive test with prompts",
+      "  form-tester exec <command> [args]       Run playwright-cli command (recorded)",
+      "  form-tester replay <recording.json>     Replay a recorded test run",
+      "",
+      "Interactive commands:",
+      "  /test {url}                 Open form URL and start test",
+      "  /save {label}               Save snapshot + screenshot to output folder",
       "  /people                     Scan visible person list and prompt selection",
       "  /persona                    List available personas",
-      "  /test {url}                 Open form URL with Playwright CLI and save initial artifacts",
-      "  /save {label}               Save snapshot + screenshot to last output folder",
+      "  /recording                  Show active recording status",
+      "  /setup                      Install Playwright CLI + skills if missing",
+      "  /update                     Update Playwright CLI and skills",
+      "  /version                    Show version",
       "  /clear                      Clear the console",
       "  /help                       Show this help",
-      "  /exit                       Exit the app",
-      "  /quit                       Exit the app",
+      "  /quit                       Exit",
     ].join("\n"),
   );
 }
@@ -1135,6 +1143,18 @@ async function handleCommand(line, config) {
     case "/save": {
       const label = arg || (await ask("Label: "));
       await saveArtifacts(config, label);
+      break;
+    }
+    case "/recording": {
+      const rec = config.activeRecording;
+      if (rec && fs.existsSync(rec)) {
+        const data = JSON.parse(fs.readFileSync(rec, "utf8"));
+        console.log(`Active recording: ${rec}`);
+        console.log(`Commands recorded: ${data.commandCount}`);
+        console.log(`Started: ${data.startedAt}`);
+      } else {
+        console.log("No active recording. Start a test with /test to begin recording.");
+      }
       break;
     }
     case "/clear":
