@@ -6,7 +6,7 @@ const { spawn, execSync } = require("child_process");
 
 const CONFIG_PATH = path.join(process.cwd(), "form-tester.config.json");
 const OUTPUT_BASE = path.resolve(process.cwd(), "output");
-const LOCAL_VERSION = "0.7.3";
+const LOCAL_VERSION = "0.8.0";
 const RECOMMENDED_PERSON = "Uromantisk Direktør";
 
 // Recording — persisted to disk so `form-tester exec` can append across processes
@@ -955,12 +955,10 @@ async function handleTest(url, config) {
       "/dokumenter?pnr={PNR}",
   );
 
-  // Save recording
-  const recordingPath = saveRecording();
-  if (recordingPath) {
-    console.log(`Recording saved: ${recordingPath}`);
-    console.log(`Replay with: form-tester replay "${recordingPath}"`);
-  }
+  // Don't finalize recording — exec commands will keep appending.
+  console.log(`Recording active: ${config.activeRecording}`);
+  console.log(`Use 'form-tester exec' for all playwright-cli commands to record them.`);
+  console.log(`Recording finalizes on 'form-tester exec close'.`);
 }
 
 async function handleTestAuto(url, config, flags) {
@@ -1073,12 +1071,11 @@ async function handleTestAuto(url, config, flags) {
     printNextSteps(outputDir, dokumenterUrl || "/dokumenter?pnr={PNR}");
   }
 
-  // Save recording
-  const recordingPath = saveRecording();
-  if (recordingPath) {
-    log(`Recording saved: ${recordingPath}`);
-    log(`Replay with: form-tester replay "${recordingPath}"`);
-  }
+  // Don't finalize recording here — `form-tester exec` commands will keep appending.
+  // Recording is finalized when `form-tester exec close` is called.
+  log(`Recording active: ${config.activeRecording}`);
+  log(`Use 'form-tester exec' for all playwright-cli commands to record them.`);
+  log(`Recording finalizes on 'form-tester exec close'.`);
 }
 
 async function handleReplay(filePath) {
