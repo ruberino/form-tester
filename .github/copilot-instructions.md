@@ -87,13 +87,18 @@ After submission, read the modal text:
 - If it mentions Dokumenter storage -> navigate to `/dokumenter?pnr={PNR}`, verify the document appears.
 - If it does NOT mention Dokumenter -> skip verification, note in test_results.txt.
 
-Document capture — FIRST detect the format by running `form-tester exec snapshot`:
+Document capture — detect format via `form-tester exec snapshot`:
 
-**PDF documents** (iframe/embed with .pdf or blob: URL, or screenshot times out): Do NOT screenshot PDFs. Download instead:
-1. Extract URL: `form-tester exec eval "document.querySelector('iframe')?.src || document.querySelector('embed')?.src || document.querySelector('object')?.data"`
-2. Download: `form-tester exec run-code "async page => { const url = await page.evaluate(() => document.querySelector('iframe')?.src || document.querySelector('embed')?.src || document.querySelector('object')?.data); if (url) { const resp = await page.request.get(url); require('fs').writeFileSync('OUTPUT_DIR/document.pdf', await resp.body()); } }"`
-3. Or click the download button in the PDF viewer if available.
-4. If `--full-page` screenshot times out, it's a PDF — switch to download, don't retry screenshot.
+**PDF documents** (link with href containing `/pdf/`, or screenshot times out):
+Do NOT screenshot PDFs. Do NOT use `require('fs')` in run-code (it doesn't exist there).
+Download using Playwright's download event:
+```
+form-tester exec run-code "async page => { const link = page.locator('a[href*=\"/pdf/\"]').first(); const [download] = await Promise.all([ page.waitForEvent('download'), link.click() ]); await download.saveAs('$OUTPUT_DIR/document.pdf'); }"
+```
+Or if there's a "Last ned" button:
+```
+form-tester exec run-code "async page => { const [download] = await Promise.all([ page.waitForEvent('download'), page.getByRole('link', { name: 'Last ned' }).click() ]); await download.saveAs('$OUTPUT_DIR/document.pdf'); }"
+```
 
 **HTML documents**: `form-tester exec screenshot --filename "..." --full-page`. Also save raw HTML.
 
