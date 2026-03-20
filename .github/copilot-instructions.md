@@ -17,8 +17,9 @@ form-tester install
 form-tester test <url> --auto
 form-tester test <url> --auto --pnr 12345 --persona ung-mann --scenario "test validation"
 
-# Human mode — prompts for persona, scenario, person selection:
-form-tester test <url> --human
+# Human mode — user chooses persona and scenario:
+form-tester test <url> --human                                          # lists personas
+form-tester test <url> --human --persona ung-mann --scenario "test X"   # run with choices
 
 # Full interactive CLI:
 form-tester
@@ -26,7 +27,11 @@ form-tester
 
 Persona IDs: `ung-mann`, `gravid-kvinne`, `eldre-kvinne`, `kronisk-syk-mann`. Defaults to "noen" if omitted.
 
-When the user asks for `--human` mode, use that flag. Otherwise default to `--auto`.
+When the user asks for `--human` mode:
+1. Run `form-tester test <url> --human` to get persona list.
+2. Ask the user to pick a persona and scenario.
+3. Re-run: `form-tester test <url> --human --persona <id> --scenario "<text>"` (use `""` for standard test).
+Otherwise default to `--auto`.
 
 ## Commands
 

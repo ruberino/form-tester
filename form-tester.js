@@ -6,7 +6,7 @@ const { spawn, execSync } = require("child_process");
 
 const CONFIG_PATH = path.join(process.cwd(), "form-tester.config.json");
 const OUTPUT_BASE = path.resolve(process.cwd(), "output");
-const LOCAL_VERSION = "0.8.1";
+const LOCAL_VERSION = "0.8.2";
 const RECOMMENDED_PERSON = "Uromantisk Direktør";
 
 // Recording — persisted to disk so `form-tester exec` can append across processes
@@ -1321,10 +1321,31 @@ async function main() {
     const config = loadConfig();
     const url = args.find((a) => a.startsWith("http"));
     if (!url) {
-      console.error("Usage: form-tester test <url> --human");
+      console.error("Usage: form-tester test <url> --human --persona <id> --scenario \"<text>\"");
       process.exit(1);
     }
-    await handleTest(url, config);
+    const flagVal = (flag) => args.includes(flag) ? args[args.indexOf(flag) + 1] : undefined;
+    const personaFlag = flagVal("--persona");
+    const scenarioFlag = flagVal("--scenario");
+
+    // If persona or scenario missing, print choices and exit so the AI can ask the user
+    if (!personaFlag || scenarioFlag === undefined) {
+      console.log("HUMAN MODE: Ask the user to choose persona and scenario, then re-run with flags.\n");
+      console.log("Available personas:");
+      console.log(formatPersonaList());
+      console.log("\nPersona IDs: ung-mann, gravid-kvinne, eldre-kvinne, kronisk-syk-mann, noen");
+      console.log("\nRe-run with: form-tester test <url> --human --persona <id> --scenario \"<description>\"");
+      console.log("Use --scenario \"\" for standard test.");
+      process.exit(0);
+    }
+
+    // Run with user's choices
+    await handleTestAuto(url, config, {
+      pnr: flagVal("--pnr"),
+      persona: personaFlag,
+      scenario: scenarioFlag || undefined,
+      verbosity: "normal",
+    });
     process.exit(0);
   }
 

@@ -16,14 +16,23 @@ Test modes:
 form-tester test <url> --auto
 form-tester test <url> --auto --pnr 12345 --persona ung-mann
 
-# Human mode — prompts for persona, scenario, person selection:
+# Human mode — user chooses persona and scenario:
+# Step 1: Run without flags to see available personas:
 form-tester test <url> --human
+# Step 2: Ask the user which persona and scenario they want.
+# Step 3: Re-run with their choices:
+form-tester test <url> --human --persona ung-mann --scenario "test validation"
 
 # Full interactive CLI:
 form-tester
 ```
 
-When the user asks for human/interactive mode, use `--human`. Otherwise default to `--auto`.
+When the user asks for human/interactive mode, use `--human`:
+1. First run `form-tester test <url> --human` (no flags) to get the persona list.
+2. Show the personas to the user and ask them to choose.
+3. Ask the user for a test scenario (or use "" for standard).
+4. Re-run with their choices: `form-tester test <url> --human --persona <id> --scenario "<text>"`
+Otherwise default to `--auto`.
 
 Commands:
 ```
