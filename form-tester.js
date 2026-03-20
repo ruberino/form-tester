@@ -1362,5 +1362,8 @@ module.exports = {
   getPersonaById,
   formatPersonaList,
   promptScenario,
+  startRecording,
+  appendToRecording,
+  finalizeRecording,
 };
 

@@ -1,6 +1,10 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
+const fs = require("node:fs");
+const path = require("node:path");
+const os = require("node:os");
+
 const {
   extractFormId,
   extractPnrFromUrl,
@@ -14,6 +18,9 @@ const {
   getPersonaById,
   formatPersonaList,
   promptScenario,
+  startRecording,
+  appendToRecording,
+  finalizeRecording,
 } = require("../form-tester");
 
 test("extractFormId returns form id from skjemautfyller URL", () => {
@@ -117,4 +124,59 @@ test("each persona has a unique id", () => {
 
 test("promptScenario is exported as a function", () => {
   assert.equal(typeof promptScenario, "function");
+});
+
+// --- Recording tests ---
+
+function makeTmpDir() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), "form-tester-test-"));
+}
+
+test("startRecording creates recording.json with empty commands", () => {
+  const dir = makeTmpDir();
+  const filePath = startRecording(dir);
+  assert.equal(filePath, path.join(dir, "recording.json"));
+  const data = JSON.parse(fs.readFileSync(filePath, "utf8"));
+  assert.equal(data.commandCount, 0);
+  assert.deepEqual(data.commands, []);
+  assert.ok(data.startedAt);
+  assert.equal(data.completedAt, null);
+  fs.rmSync(dir, { recursive: true });
+});
+
+test("appendToRecording adds commands to recording file", () => {
+  const dir = makeTmpDir();
+  const filePath = startRecording(dir);
+  appendToRecording(filePath, ["open", "https://example.com"]);
+  appendToRecording(filePath, ["fill", "e1", "hello"]);
+  appendToRecording(filePath, ["click", "e3"]);
+  const data = JSON.parse(fs.readFileSync(filePath, "utf8"));
+  assert.equal(data.commandCount, 3);
+  assert.deepEqual(data.commands[0].args, ["open", "https://example.com"]);
+  assert.deepEqual(data.commands[1].args, ["fill", "e1", "hello"]);
+  assert.deepEqual(data.commands[2].args, ["click", "e3"]);
+  assert.ok(data.commands[0].timestamp);
+  fs.rmSync(dir, { recursive: true });
+});
+
+test("finalizeRecording sets completedAt timestamp", () => {
+  const dir = makeTmpDir();
+  const filePath = startRecording(dir);
+  appendToRecording(filePath, ["snapshot"]);
+  const result = finalizeRecording(filePath);
+  assert.equal(result, filePath);
+  const data = JSON.parse(fs.readFileSync(filePath, "utf8"));
+  assert.ok(data.completedAt);
+  assert.equal(data.commandCount, 1);
+  fs.rmSync(dir, { recursive: true });
+});
+
+test("finalizeRecording returns null for missing file", () => {
+  assert.equal(finalizeRecording("/nonexistent/recording.json"), null);
+  assert.equal(finalizeRecording(null), null);
+});
+
+test("appendToRecording is resilient to missing file", () => {
+  // Should not throw
+  appendToRecording("/nonexistent/recording.json", ["click", "e1"]);
 });
