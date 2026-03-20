@@ -26,6 +26,14 @@ form-tester
 
 Persona IDs: `ung-mann`, `gravid-kvinne`, `eldre-kvinne`, `kronisk-syk-mann`. Defaults to "noen" (neutral answers) if omitted.
 
+## Recording & Replay
+
+Every test run records all playwright-cli commands to `recording.json` in the output folder. Replay a previous run:
+
+```bash
+form-tester replay output/form-id/timestamp/recording.json
+```
+
 ## Commands
 
 ```bash

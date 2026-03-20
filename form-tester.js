@@ -6,8 +6,40 @@ const { spawn, execSync } = require("child_process");
 
 const CONFIG_PATH = path.join(process.cwd(), "form-tester.config.json");
 const OUTPUT_BASE = path.resolve(process.cwd(), "output");
-const LOCAL_VERSION = "0.5.1";
+const LOCAL_VERSION = "0.6.0";
 const RECOMMENDED_PERSON = "Uromantisk Direktør";
+
+// Recording state — when active, all playwright-cli commands are logged
+let activeRecording = null;
+
+function startRecording(outputDir) {
+  activeRecording = { commands: [], outputDir, startedAt: new Date().toISOString() };
+}
+
+function recordCommand(args) {
+  if (activeRecording) {
+    activeRecording.commands.push({ args, timestamp: new Date().toISOString() });
+  }
+}
+
+function saveRecording() {
+  if (!activeRecording || !activeRecording.commands.length) return null;
+  const filePath = path.join(activeRecording.outputDir, "recording.json");
+  const data = {
+    version: LOCAL_VERSION,
+    startedAt: activeRecording.startedAt,
+    completedAt: new Date().toISOString(),
+    commandCount: activeRecording.commands.length,
+    commands: activeRecording.commands,
+  };
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+  activeRecording = null;
+  return filePath;
+}
+
+function stopRecording() {
+  activeRecording = null;
+}
 
 const PERSONAS = [
   {
@@ -286,6 +318,7 @@ function runCommand(command, args, options = {}) {
 }
 
 function runPlaywrightCli(args) {
+  recordCommand(args);
   return new Promise((resolve) => {
     const spec = getPlaywrightCommandSpec();
     const spawnOpts = { stdio: "inherit" };
@@ -821,6 +854,9 @@ async function handleTest(url, config) {
   config.lastRunDir = outputDir;
   saveConfig(config);
 
+  // Start recording
+  startRecording(outputDir);
+
   if (personaChoice.type === "preset") {
     fs.writeFileSync(
       path.join(outputDir, "persona.json"),
@@ -877,6 +913,13 @@ async function handleTest(url, config) {
     dokumenterUrl ||
       "/dokumenter?pnr={PNR}",
   );
+
+  // Save recording
+  const recordingPath = saveRecording();
+  if (recordingPath) {
+    console.log(`Recording saved: ${recordingPath}`);
+    console.log(`Replay with: form-tester replay "${recordingPath}"`);
+  }
 }
 
 async function handleTestAuto(url, config, flags) {
@@ -927,6 +970,9 @@ async function handleTestAuto(url, config, flags) {
   config.lastTestUrl = fullUrl;
   config.lastRunDir = outputDir;
   saveConfig(config);
+
+  // Start recording
+  startRecording(outputDir);
 
   // Save persona and scenario
   if (personaChoice.type === "preset") {
@@ -983,6 +1029,35 @@ async function handleTestAuto(url, config, flags) {
     console.log("");
     printNextSteps(outputDir, dokumenterUrl || "/dokumenter?pnr={PNR}");
   }
+
+  // Save recording
+  const recordingPath = saveRecording();
+  if (recordingPath) {
+    log(`Recording saved: ${recordingPath}`);
+    log(`Replay with: form-tester replay "${recordingPath}"`);
+  }
+}
+
+async function handleReplay(filePath) {
+  if (!fs.existsSync(filePath)) {
+    console.error(`Recording not found: ${filePath}`);
+    process.exit(1);
+  }
+  const recording = JSON.parse(fs.readFileSync(filePath, "utf8"));
+  console.log(`Replaying ${recording.commandCount} commands from ${recording.startedAt}`);
+  console.log("");
+
+  for (let i = 0; i < recording.commands.length; i++) {
+    const cmd = recording.commands[i];
+    console.log(`[${i + 1}/${recording.commandCount}] playwright-cli ${cmd.args.join(" ")}`);
+    const code = await runPlaywrightCli(cmd.args);
+    if (code !== 0) {
+      console.error(`Command failed with exit code ${code}. Stopping replay.`);
+      process.exit(1);
+    }
+  }
+
+  console.log("\nReplay complete.");
 }
 
 async function handleCommand(line, config) {
@@ -1135,6 +1210,16 @@ async function main() {
       console.log(`Installing form-tester skills to ${targetDir} ...\n`);
     }
     install(targetDir, isGlobal);
+    process.exit(0);
+  }
+
+  if (args[0] === "replay") {
+    const filePath = args[1];
+    if (!filePath) {
+      console.error("Usage: form-tester replay <recording.json>");
+      process.exit(1);
+    }
+    await handleReplay(path.resolve(filePath));
     process.exit(0);
   }
 
