@@ -70,7 +70,21 @@ Dokumenter verification (only when modal confirms storage):
 2. The document list loads sorted newest first. The first entry should match the form title.
 3. Click "Se detaljer" on the first document, then click "Åpne dokumentet".
 4. IMPORTANT - document capture depends on format:
-   - PDF documents: DOWNLOAD the file. Use `form-tester exec pdf --filename "$OUTPUT_DIR/document.pdf"` or save via browser download. Do NOT screenshot PDFs.
-   - HTML documents: Take a FULL-PAGE screenshot of the ENTIRE document (`form-tester exec screenshot --filename "$OUTPUT_DIR/document_screenshot.png" --full-page`). HTML documents cannot be downloaded as files, so the full-page screenshot is the primary artifact. Also save the snapshot and raw HTML.
-   - XML/other formats: Note the document type in test_results.txt and skip capture.
+
+   PDF documents (shown in a PDF viewer/modal/iframe):
+   Do NOT screenshot PDFs. Instead, download the actual PDF file:
+   a. Take a snapshot to find the PDF viewer element: `form-tester exec snapshot`
+   b. Find the iframe or embed/object element that displays the PDF. Look for src attributes containing .pdf or blob: URLs.
+   c. Extract the PDF URL: `form-tester exec eval "document.querySelector('iframe')?.src || document.querySelector('embed')?.src || document.querySelector('object')?.data"`
+   d. If the URL is a blob: URL or direct PDF link, download it: `form-tester exec eval "async () => { const r = await fetch(document.querySelector('iframe')?.src); const b = await r.blob(); return URL.createObjectURL(b); }"`
+   e. Or use the download button if the PDF viewer has one — look for a download icon/button in the snapshot and click it.
+   f. Save the PDF: `form-tester exec pdf --filename "$OUTPUT_DIR/document.pdf"`
+   g. If all else fails, right-click save or use: `form-tester exec run-code "async page => { const frame = page.frameLocator('iframe').first(); /* extract content */ }"`
+
+   HTML documents (opens in a new tab or renders in page):
+   Take a FULL-PAGE screenshot of the ENTIRE document (`form-tester exec screenshot --filename "$OUTPUT_DIR/document_screenshot.png" --full-page`). HTML documents cannot be downloaded as files, so the full-page screenshot is the primary artifact. Also save the snapshot and raw HTML with:
+   `form-tester exec eval "document.documentElement.outerHTML"` and save to document.html.
+
+   XML/other formats: Note the document type in test_results.txt and skip capture.
+
 5. Include the document verification results in test_results.txt (document title, whether it matched the form h1, document type: HTML/PDF/XML).

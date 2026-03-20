@@ -83,6 +83,12 @@ After submission, read the modal text:
 - If it does NOT mention Dokumenter -> skip verification, note in test_results.txt.
 
 Document capture depends on format:
-- **PDF documents**: download the file (`form-tester exec pdf --filename "..." `). Do NOT screenshot PDFs.
-- **HTML documents**: take a full-page screenshot of the ENTIRE document (`form-tester exec screenshot --filename "..." --full-page`). HTML documents cannot be downloaded, so the screenshot is the primary artifact.
-- **XML/other**: note the type in test_results.txt and skip capture.
+
+**PDF documents** (shown in PDF viewer/modal/iframe): Do NOT screenshot PDFs. Download the file instead:
+1. Take a snapshot to find the PDF viewer: `form-tester exec snapshot`
+2. Extract the PDF URL from the iframe/embed: `form-tester exec eval "document.querySelector('iframe')?.src || document.querySelector('embed')?.src || document.querySelector('object')?.data"`
+3. Download via: `form-tester exec pdf --filename "$OUTPUT_DIR/document.pdf"` or click the download button in the PDF viewer if available.
+
+**HTML documents**: take a full-page screenshot of the ENTIRE document (`form-tester exec screenshot --filename "..." --full-page`). Also save raw HTML with `form-tester exec eval "document.documentElement.outerHTML"`.
+
+**XML/other**: note the type in test_results.txt and skip capture.
