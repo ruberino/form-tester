@@ -82,13 +82,14 @@ After submission, read the modal text:
 - If it mentions Dokumenter storage -> navigate to `/dokumenter?pnr={PNR}`, verify the document appears.
 - If it does NOT mention Dokumenter -> skip verification, note in test_results.txt.
 
-Document capture depends on format:
+Document capture — FIRST detect the format by running `form-tester exec snapshot`:
 
-**PDF documents** (shown in PDF viewer/modal/iframe): Do NOT screenshot PDFs. Download the file instead:
-1. Take a snapshot to find the PDF viewer: `form-tester exec snapshot`
-2. Extract the PDF URL from the iframe/embed: `form-tester exec eval "document.querySelector('iframe')?.src || document.querySelector('embed')?.src || document.querySelector('object')?.data"`
-3. Download via: `form-tester exec pdf --filename "$OUTPUT_DIR/document.pdf"` or click the download button in the PDF viewer if available.
+**PDF documents** (iframe/embed with .pdf or blob: URL, or screenshot times out): Do NOT screenshot PDFs. Download instead:
+1. Extract URL: `form-tester exec eval "document.querySelector('iframe')?.src || document.querySelector('embed')?.src || document.querySelector('object')?.data"`
+2. Download: `form-tester exec run-code "async page => { const url = await page.evaluate(() => document.querySelector('iframe')?.src || document.querySelector('embed')?.src || document.querySelector('object')?.data); if (url) { const resp = await page.request.get(url); require('fs').writeFileSync('OUTPUT_DIR/document.pdf', await resp.body()); } }"`
+3. Or click the download button in the PDF viewer if available.
+4. If `--full-page` screenshot times out, it's a PDF — switch to download, don't retry screenshot.
 
-**HTML documents**: take a full-page screenshot of the ENTIRE document (`form-tester exec screenshot --filename "..." --full-page`). Also save raw HTML with `form-tester exec eval "document.documentElement.outerHTML"`.
+**HTML documents**: `form-tester exec screenshot --filename "..." --full-page`. Also save raw HTML.
 
 **XML/other**: note the type in test_results.txt and skip capture.
