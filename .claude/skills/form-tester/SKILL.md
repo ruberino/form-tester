@@ -20,7 +20,10 @@ form-tester install --global   # or install to ~/.claude/skills/
 form-tester test <url> --auto
 form-tester test <url> --auto --pnr 12345 --persona ung-mann --scenario "test validation"
 
-# Interactive CLI:
+# Interactive mode (prompts for persona, scenario, etc.):
+form-tester test <url> --human
+
+# Full interactive CLI:
 form-tester
 ```
 

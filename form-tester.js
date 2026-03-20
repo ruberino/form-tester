@@ -6,7 +6,7 @@ const { spawn, execSync } = require("child_process");
 
 const CONFIG_PATH = path.join(process.cwd(), "form-tester.config.json");
 const OUTPUT_BASE = path.resolve(process.cwd(), "output");
-const LOCAL_VERSION = "0.7.0";
+const LOCAL_VERSION = "0.7.1";
 const RECOMMENDED_PERSON = "Uromantisk Direktør";
 
 // Recording — persisted to disk so `form-tester exec` can append across processes
@@ -1297,6 +1297,17 @@ async function main() {
       process.exit(1);
     }
     await handleReplay(path.resolve(filePath));
+    process.exit(0);
+  }
+
+  if (args[0] === "test" && args.includes("--human")) {
+    const config = loadConfig();
+    const url = args.find((a) => a.startsWith("http"));
+    if (!url) {
+      console.error("Usage: form-tester test <url> --human");
+      process.exit(1);
+    }
+    await handleTest(url, config);
     process.exit(0);
   }
 
