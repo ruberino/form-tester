@@ -13,15 +13,20 @@ form-tester install
 ## Running the CLI
 
 ```bash
-# Interactive
-form-tester
-
-# Non-interactive (best for AI agents)
+# AI mode (default) — no prompts:
 form-tester test <url> --auto
 form-tester test <url> --auto --pnr 12345 --persona ung-mann --scenario "test validation"
+
+# Human mode — prompts for persona, scenario, person selection:
+form-tester test <url> --human
+
+# Full interactive CLI:
+form-tester
 ```
 
 Persona IDs: `ung-mann`, `gravid-kvinne`, `eldre-kvinne`, `kronisk-syk-mann`. Defaults to "noen" if omitted.
+
+When the user asks for `--human` mode, use that flag. Otherwise default to `--auto`.
 
 ## Commands
 
@@ -36,17 +41,22 @@ Persona IDs: `ung-mann`, `gravid-kvinne`, `eldre-kvinne`, `kronisk-syk-mann`. De
 | `/clear` | Clear session |
 | `/quit` | Exit CLI |
 
-## Playwright CLI
+## Playwright CLI (use via form-tester exec)
 
-You can also use `playwright-cli` commands directly for browser automation:
+IMPORTANT: Always use `form-tester exec` instead of `playwright-cli` directly. This records all commands for replay.
 
 ```bash
-playwright-cli open https://example.com
-playwright-cli snapshot
-playwright-cli fill e1 "value"
-playwright-cli click e3
-playwright-cli screenshot --filename=page.png --full-page
-playwright-cli close
+form-tester exec open https://example.com
+form-tester exec snapshot
+form-tester exec fill e1 "value"
+form-tester exec click e3
+form-tester exec screenshot --filename=page.png --full-page
+form-tester exec close           # finalizes recording
+```
+
+Replay a previous run:
+```bash
+form-tester replay output/form-id/timestamp/recording.json
 ```
 
 ## Test Flow
@@ -73,6 +83,6 @@ After submission, read the modal text:
 - If it does NOT mention Dokumenter -> skip verification, note in test_results.txt.
 
 Document capture depends on format:
-- **PDF documents**: download the file (`playwright-cli pdf --filename "..." `). Do NOT screenshot PDFs.
-- **HTML documents**: take a full-page screenshot of the ENTIRE document (`playwright-cli screenshot --filename "..." --full-page`). HTML documents cannot be downloaded, so the screenshot is the primary artifact.
+- **PDF documents**: download the file (`form-tester exec pdf --filename "..." `). Do NOT screenshot PDFs.
+- **HTML documents**: take a full-page screenshot of the ENTIRE document (`form-tester exec screenshot --filename "..." --full-page`). HTML documents cannot be downloaded, so the screenshot is the primary artifact.
 - **XML/other**: note the type in test_results.txt and skip capture.

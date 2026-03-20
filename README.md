@@ -32,20 +32,41 @@ Edit `form-tester.config.json` and set your `pnr`.
 
 ## Usage
 
-### Default: non-interactive (`--auto`)
-
-AI agents (Claude Code, Copilot) will use `--auto` mode by default. No prompts, just runs the test:
+### Test modes
 
 ```bash
+# AI mode (default) — no prompts, uses defaults:
 form-tester test <url> --auto
 form-tester test <url> --auto --pnr 12345 --persona ung-mann --scenario "test validation"
+
+# Human mode — prompts for persona, scenario, person selection:
+form-tester test <url> --human
+
+# Full interactive CLI:
+form-tester
 ```
 
 Persona IDs: `ung-mann`, `gravid-kvinne`, `eldre-kvinne`, `kronisk-syk-mann`
 
+### Recording & Replay
+
+Every test run records all commands to `recording.json`. Use `form-tester exec` instead of `playwright-cli` to ensure all commands are recorded:
+
+```bash
+form-tester exec fill e1 "value"
+form-tester exec click e3
+form-tester exec screenshot --filename "page.png" --full-page
+form-tester exec close           # finalizes recording
+```
+
+Replay a previous run:
+```bash
+form-tester replay output/form-id/timestamp/recording.json
+```
+
 ### Interactive CLI
 
-For manual use without an AI agent:
+Full interactive CLI with all commands:
 
 ```bash
 form-tester

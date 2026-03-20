@@ -10,16 +10,20 @@ Install skill files:
 form-tester install
 ```
 
-Run the CLI:
+Test modes:
 ```
+# AI mode (default) — no prompts:
+form-tester test <url> --auto
+form-tester test <url> --auto --pnr 12345 --persona ung-mann
+
+# Human mode — prompts for persona, scenario, person selection:
+form-tester test <url> --human
+
+# Full interactive CLI:
 form-tester
 ```
 
-Non-interactive mode (best for AI agents):
-```
-form-tester test <url> --auto
-form-tester test <url> --auto --pnr 12345 --persona ung-mann
-```
+When the user asks for human/interactive mode, use `--human`. Otherwise default to `--auto`.
 
 Commands:
 ```
@@ -43,8 +47,9 @@ Notes:
 - Use the next-step checklist printed by the CLI (cookies, person selection, validation fix, Dokumenter verification, save HTML/PDF).
 - If the error modal appears on save or submit ("Det skjedde en feil under innsending av skjema. Prøv igjen senere."), open DevTools -> Network before retrying. Then try resubmitting once. If it persists, find the failed request and capture the Correlation ID header in test_results.txt.
 - Use `--help` or `-h` to print the command list without starting the prompt.
-- Playwright CLI commands are available from this skill when needed.
-- IMPORTANT: All screenshots taken during a test run MUST use `--full-page` to capture the entire page, not just the viewport. This applies to every screenshot command: `playwright-cli screenshot --filename "..." --full-page`
+- IMPORTANT: Always use `form-tester exec` instead of `playwright-cli` directly. This records all commands for replay. Same syntax: `form-tester exec fill e1 "value"`, `form-tester exec click e3`, `form-tester exec close` (finalizes recording).
+- Replay a previous run: `form-tester replay output/form-id/timestamp/recording.json`
+- IMPORTANT: All screenshots taken during a test run MUST use `--full-page` to capture the entire page, not just the viewport. This applies to every screenshot command: `form-tester exec screenshot --filename "..." --full-page`
 - IMPORTANT: Take a full-page screenshot EVERY TIME the page changes. This includes: after clicking any action button (Neste, Forrige, Send inn, etc.), after a step/page transition, after form validation errors appear, after modals open, and after submission. Name screenshots descriptively (e.g., step1_filled.png, step2_before_submit.png, submit_result.png).
 
 Test flow (when /test is triggered):
@@ -65,7 +70,7 @@ Dokumenter verification (only when modal confirms storage):
 2. The document list loads sorted newest first. The first entry should match the form title.
 3. Click "Se detaljer" on the first document, then click "Åpne dokumentet".
 4. IMPORTANT - document capture depends on format:
-   - PDF documents: DOWNLOAD the file. Use `playwright-cli pdf --filename "$OUTPUT_DIR/document.pdf"` or save via browser download. Do NOT screenshot PDFs.
-   - HTML documents: Take a FULL-PAGE screenshot of the ENTIRE document (`playwright-cli screenshot --filename "$OUTPUT_DIR/document_screenshot.png" --full-page`). HTML documents cannot be downloaded as files, so the full-page screenshot is the primary artifact. Also save the snapshot and raw HTML.
+   - PDF documents: DOWNLOAD the file. Use `form-tester exec pdf --filename "$OUTPUT_DIR/document.pdf"` or save via browser download. Do NOT screenshot PDFs.
+   - HTML documents: Take a FULL-PAGE screenshot of the ENTIRE document (`form-tester exec screenshot --filename "$OUTPUT_DIR/document_screenshot.png" --full-page`). HTML documents cannot be downloaded as files, so the full-page screenshot is the primary artifact. Also save the snapshot and raw HTML.
    - XML/other formats: Note the document type in test_results.txt and skip capture.
 5. Include the document verification results in test_results.txt (document title, whether it matched the form h1, document type: HTML/PDF/XML).
