@@ -6,39 +6,78 @@ const { spawn, execSync } = require("child_process");
 
 const CONFIG_PATH = path.join(process.cwd(), "form-tester.config.json");
 const OUTPUT_BASE = path.resolve(process.cwd(), "output");
-const LOCAL_VERSION = "0.6.0";
+const LOCAL_VERSION = "0.7.0";
 const RECOMMENDED_PERSON = "Uromantisk Direktør";
 
-// Recording state — when active, all playwright-cli commands are logged
-let activeRecording = null;
+// Recording — persisted to disk so `form-tester exec` can append across processes
+let activeRecordingPath = null;
 
 function startRecording(outputDir) {
-  activeRecording = { commands: [], outputDir, startedAt: new Date().toISOString() };
+  const filePath = path.join(outputDir, "recording.json");
+  const data = {
+    version: LOCAL_VERSION,
+    startedAt: new Date().toISOString(),
+    completedAt: null,
+    commandCount: 0,
+    commands: [],
+  };
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+  activeRecordingPath = filePath;
+  return filePath;
 }
 
 function recordCommand(args) {
-  if (activeRecording) {
-    activeRecording.commands.push({ args, timestamp: new Date().toISOString() });
+  // In-process recording
+  if (activeRecordingPath && fs.existsSync(activeRecordingPath)) {
+    appendToRecording(activeRecordingPath, args);
+    return;
+  }
+  // Check config for active recording (cross-process via exec)
+  try {
+    const config = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
+    if (config.activeRecording && fs.existsSync(config.activeRecording)) {
+      appendToRecording(config.activeRecording, args);
+    }
+  } catch (e) {
+    // no config or no active recording, skip
+  }
+}
+
+function appendToRecording(filePath, args) {
+  try {
+    const data = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    data.commands.push({ args, timestamp: new Date().toISOString() });
+    data.commandCount = data.commands.length;
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+  } catch (e) {
+    // recording file corrupted or gone, skip
+  }
+}
+
+function finalizeRecording(filePath) {
+  if (!filePath || !fs.existsSync(filePath)) return null;
+  try {
+    const data = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    data.completedAt = new Date().toISOString();
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+    return filePath;
+  } catch (e) {
+    return null;
   }
 }
 
 function saveRecording() {
-  if (!activeRecording || !activeRecording.commands.length) return null;
-  const filePath = path.join(activeRecording.outputDir, "recording.json");
-  const data = {
-    version: LOCAL_VERSION,
-    startedAt: activeRecording.startedAt,
-    completedAt: new Date().toISOString(),
-    commandCount: activeRecording.commands.length,
-    commands: activeRecording.commands,
-  };
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
-  activeRecording = null;
-  return filePath;
-}
-
-function stopRecording() {
-  activeRecording = null;
+  const result = finalizeRecording(activeRecordingPath);
+  activeRecordingPath = null;
+  // Clear active recording from config
+  try {
+    const config = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
+    delete config.activeRecording;
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
+  } catch (e) {
+    // config not found, skip
+  }
+  return result;
 }
 
 const PERSONAS = [
@@ -854,8 +893,10 @@ async function handleTest(url, config) {
   config.lastRunDir = outputDir;
   saveConfig(config);
 
-  // Start recording
-  startRecording(outputDir);
+  // Start recording and persist path to config for `exec`
+  const recordingFile = startRecording(outputDir);
+  config.activeRecording = recordingFile;
+  saveConfig(config);
 
   if (personaChoice.type === "preset") {
     fs.writeFileSync(
@@ -971,8 +1012,10 @@ async function handleTestAuto(url, config, flags) {
   config.lastRunDir = outputDir;
   saveConfig(config);
 
-  // Start recording
-  startRecording(outputDir);
+  // Start recording and persist path to config for `exec`
+  const recordingFile = startRecording(outputDir);
+  config.activeRecording = recordingFile;
+  saveConfig(config);
 
   // Save persona and scenario
   if (personaChoice.type === "preset") {
@@ -1211,6 +1254,40 @@ async function main() {
     }
     install(targetDir, isGlobal);
     process.exit(0);
+  }
+
+  if (args[0] === "exec") {
+    const pwArgs = args.slice(1);
+    if (!pwArgs.length) {
+      console.error("Usage: form-tester exec <playwright-cli command and args>");
+      process.exit(1);
+    }
+    // Record (reads config.activeRecording) and run playwright-cli directly
+    recordCommand(pwArgs);
+    // Run without going through runPlaywrightCli to avoid double-recording
+    const spec = getPlaywrightCommandSpec();
+    const spawnOpts = { stdio: "inherit" };
+    if (spec.shell) spawnOpts.shell = true;
+    const code = await new Promise((resolve) => {
+      const child = spawn(spec.command, [...spec.args, ...pwArgs], spawnOpts);
+      child.on("error", (err) => { console.error(err.message); resolve(1); });
+      child.on("exit", (c) => resolve(c ?? 0));
+    });
+    // If the command was "close", finalize the recording
+    if (pwArgs[0] === "close") {
+      try {
+        const config = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
+        if (config.activeRecording) {
+          const rPath = finalizeRecording(config.activeRecording);
+          delete config.activeRecording;
+          fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
+          if (rPath) console.log(`Recording saved: ${rPath}`);
+        }
+      } catch (e) {
+        // no config, skip
+      }
+    }
+    process.exit(code);
   }
 
   if (args[0] === "replay") {

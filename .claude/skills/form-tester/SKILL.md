@@ -28,8 +28,17 @@ Persona IDs: `ung-mann`, `gravid-kvinne`, `eldre-kvinne`, `kronisk-syk-mann`. De
 
 ## Recording & Replay
 
-Every test run records all playwright-cli commands to `recording.json` in the output folder. Replay a previous run:
+Every test run records all commands to `recording.json` in the output folder. To ensure ALL commands are recorded (including form filling, clicking, etc.), always use `form-tester exec` instead of `playwright-cli` directly:
 
+```bash
+# ALWAYS use this instead of playwright-cli directly:
+form-tester exec fill e1 "value"
+form-tester exec click e3
+form-tester exec screenshot --filename "path.png" --full-page
+form-tester exec close    # finalizes and saves the recording
+```
+
+Replay a previous run:
 ```bash
 form-tester replay output/form-id/timestamp/recording.json
 ```
@@ -57,4 +66,12 @@ Use `/people` to rescan the visible person list and get a numbered selection pro
 
 ## Playwright CLI
 
-You can also run `playwright-cli` commands directly when needed.
+IMPORTANT: Always use `form-tester exec` instead of `playwright-cli` directly. This ensures all commands are recorded for replay. The syntax is the same — just prefix with `form-tester exec`:
+
+```bash
+form-tester exec snapshot
+form-tester exec fill e1 "value"
+form-tester exec click e3
+form-tester exec screenshot --filename "page.png" --full-page
+form-tester exec close
+```
