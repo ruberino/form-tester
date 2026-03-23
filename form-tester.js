@@ -7,7 +7,7 @@ const { spawn, execSync } = require("child_process");
 const CONFIG_PATH = path.join(process.cwd(), "form-tester.config.json");
 const OUTPUT_BASE = path.resolve(process.cwd(), "output");
 const ISSUES_PATH = path.join(OUTPUT_BASE, "issues.jsonl");
-const LOCAL_VERSION = "0.10.0";
+const LOCAL_VERSION = "0.10.1";
 const RECOMMENDED_PERSON = "Uromantisk Direktør";
 
 // Recording — persisted to disk so `form-tester exec` can append across processes
