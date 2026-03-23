@@ -7,7 +7,7 @@ const { spawn, execSync } = require("child_process");
 const CONFIG_PATH = path.join(process.cwd(), "form-tester.config.json");
 const OUTPUT_BASE = path.resolve(process.cwd(), "output");
 const ISSUES_PATH = path.join(OUTPUT_BASE, "issues.jsonl");
-const LOCAL_VERSION = "0.9.1";
+const LOCAL_VERSION = "0.10.0";
 const RECOMMENDED_PERSON = "Uromantisk Direktør";
 
 // Recording — persisted to disk so `form-tester exec` can append across processes
@@ -255,6 +255,268 @@ async function handleDocuments(config, flags = {}) {
   log(`\nDocument verification complete. Format: ${format}`);
   log(`Output: ${outputDir}`);
   return 0;
+}
+
+// --- Standardized commands: cookies, select-person, validate ---
+
+async function handleCookies() {
+  // Try known cookie banner selectors
+  const script = `() => {
+    const selectors = [
+      '[data-testid="reject-all-cookies"]',
+      '[data-testid="accept-all-cookies"]',
+      'button[id*="cookie" i]',
+      'button[class*="cookie" i]',
+      '[data-testid*="cookie" i]',
+      'button:has-text("Avvis alle")',
+      'button:has-text("Reject")',
+      'button:has-text("Aksepter")',
+    ];
+    for (const sel of selectors) {
+      const el = document.querySelector(sel);
+      if (el && el.offsetParent !== null) {
+        el.click();
+        return { found: true, selector: sel, text: (el.textContent || "").trim().substring(0, 60) };
+      }
+    }
+    return { found: false };
+  }`;
+  const result = await runPlaywrightCliCapture(["eval", script]);
+  const output = result.stdout.replace(/^### Result\s*/i, "").trim();
+  try {
+    const parsed = JSON.parse(output);
+    if (parsed.found) {
+      console.log(`Cookie banner dismissed: "${parsed.text}" (${parsed.selector})`);
+      return 0;
+    }
+  } catch (e) {
+    // parse failed, check raw output
+  }
+  console.log("No cookie banner found.");
+  return 0;
+}
+
+async function handleSelectPerson(config, targetName) {
+  const v = "normal";
+  const log = (msg) => console.log(msg);
+
+  // Step 1: Try to find person list from current page snapshot
+  const tmpSnapshot = path.join(
+    config.lastRunDir || OUTPUT_BASE,
+    `_person_scan_${Date.now()}.yml`,
+  );
+  await runPlaywrightCli(["snapshot", "--filename", tmpSnapshot]);
+
+  let options = extractPersonsFromSnapshotFile(tmpSnapshot);
+
+  // Step 2: If no options from snapshot, try JS-based detection
+  if (!options.length) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      log(`Scanning for person options (attempt ${attempt + 1})...`);
+      await sleep(1500);
+      options = await fetchPersonOptions();
+      if (options.length) break;
+    }
+  }
+
+  if (!options.length) {
+    console.error("No person options found on page.");
+    logIssue("person-selection", "No person options found by select-person command");
+    // Clean up temp file
+    try { fs.unlinkSync(tmpSnapshot); } catch (e) {}
+    return 1;
+  }
+
+  options = prioritizeRecommended(options, RECOMMENDED_PERSON);
+
+  // Step 3: Determine which person to select
+  let chosen;
+  if (targetName) {
+    const target = targetName.toLowerCase();
+    chosen = options.find((o) => o.toLowerCase().includes(target));
+    if (!chosen) {
+      log(`Person "${targetName}" not found. Available: ${options.join(", ")}`);
+      chosen = options[0];
+      log(`Falling back to: ${chosen}`);
+    }
+  } else {
+    chosen = options[0]; // recommended or first
+  }
+
+  // Step 4: Click the person button
+  log(`Selecting person: ${chosen}`);
+  const clickScript = `() => {
+    const buttons = Array.from(document.querySelectorAll('button, [role="button"], [role="option"], a'));
+    const normalize = (s) => (s || "").replace(/\\s+/g, " ").trim();
+    const target = ${JSON.stringify(chosen)};
+    for (const btn of buttons) {
+      const text = normalize(btn.textContent);
+      if (text.includes(target) || text === target) {
+        btn.click();
+        return { clicked: true, text: text.substring(0, 80) };
+      }
+    }
+    return { clicked: false, available: buttons.slice(0, 10).map(b => normalize(b.textContent).substring(0, 60)).filter(Boolean) };
+  }`;
+  const clickResult = await runPlaywrightCliCapture(["eval", clickScript]);
+  const clickOutput = clickResult.stdout.replace(/^### Result\s*/i, "").trim();
+  try {
+    const parsed = JSON.parse(clickOutput);
+    if (parsed.clicked) {
+      log(`Person selected: ${parsed.text}`);
+      config.lastPerson = chosen;
+      saveConfig(config);
+      await sleep(1000);
+      // Take screenshot after selection
+      if (config.lastRunDir) {
+        await runPlaywrightCli(["screenshot", "--filename", path.join(config.lastRunDir, "person_selected.png"), "--full-page"]);
+      }
+    } else {
+      log("Could not click person button. Available buttons:");
+      (parsed.available || []).forEach((b) => log(`  - ${b}`));
+      logIssue("person-selection", `Could not click "${chosen}". Buttons found but none matched.`);
+    }
+  } catch (e) {
+    log(`Person selection result: ${clickOutput}`);
+  }
+
+  // Clean up temp file
+  try { fs.unlinkSync(tmpSnapshot); } catch (e) {}
+  return 0;
+}
+
+function parseValidationErrors(snapshotText) {
+  const lines = snapshotText.split(/\r?\n/);
+  const errors = [];
+  // Look for the validation status block: status "Sjekk at følgende er riktig utfylt:"
+  let inValidation = false;
+  let validationIndent = null;
+
+  for (const line of lines) {
+    const indentMatch = line.match(/^(\s*)/);
+    const indent = indentMatch ? indentMatch[1].length : 0;
+
+    if (!inValidation) {
+      if (line.includes('status "Sjekk at følgende er riktig utfylt:"') || line.includes('status "Sjekk at f')) {
+        inValidation = true;
+        validationIndent = indent;
+      }
+      continue;
+    }
+
+    // Exit validation block when we hit same or lower indent that's not part of the list
+    if (indent <= validationIndent && !line.includes("list") && !line.includes("listitem") && !line.includes("link") && line.trim().startsWith("-")) {
+      break;
+    }
+
+    // Parse error links: link "error text" [ref=eXXX] ... /url: "#fieldId"
+    const linkMatch = line.match(/link "([^"]+)" \[ref=(e\d+)\]/);
+    if (linkMatch) {
+      const errorText = linkMatch[1];
+      const ref = linkMatch[2];
+      // Look for the URL on the next line or in the same block
+      errors.push({ text: errorText, ref, fieldId: null });
+    }
+
+    // Parse URL for the most recent error
+    const urlMatch = line.match(/\/url:\s*"#([^"]+)"/);
+    if (urlMatch && errors.length > 0 && !errors[errors.length - 1].fieldId) {
+      errors[errors.length - 1].fieldId = urlMatch[1];
+    }
+  }
+
+  return errors;
+}
+
+async function handleValidate(config) {
+  const outputDir = config.lastRunDir;
+  if (!outputDir) {
+    console.error("No output folder. Run a test first.");
+    return 1;
+  }
+  fs.mkdirSync(outputDir, { recursive: true });
+
+  // Step 1: Take a fresh snapshot
+  const snapshotPath = path.join(outputDir, `validate_${Date.now()}.yml`);
+  await runPlaywrightCli(["snapshot", "--filename", snapshotPath]);
+
+  if (!fs.existsSync(snapshotPath)) {
+    console.error("Failed to take snapshot.");
+    return 1;
+  }
+
+  const snapshotText = fs.readFileSync(snapshotPath, "utf8");
+  const errors = parseValidationErrors(snapshotText);
+
+  if (!errors.length) {
+    console.log("No validation errors found. Form is ready to submit.");
+    return 0;
+  }
+
+  console.log(`\n${errors.length} validation error(s) found:\n`);
+
+  for (let i = 0; i < errors.length; i++) {
+    const err = errors[i];
+    const fieldId = err.fieldId ? decodeURIComponent(err.fieldId) : "unknown";
+    console.log(`  ${i + 1}. [${fieldId}] "${err.text}" (ref=${err.ref})`);
+  }
+
+  // Step 2: Click each error link to scroll to it and take a snapshot
+  console.log("\nScrolling to each error and taking snapshots...\n");
+
+  for (let i = 0; i < errors.length; i++) {
+    const err = errors[i];
+    const fieldId = err.fieldId ? decodeURIComponent(err.fieldId) : null;
+
+    // Click the error link to scroll to the field
+    const clickCode = await runPlaywrightCli(["click", err.ref]);
+    if (clickCode !== 0) {
+      console.log(`  ${i + 1}. Could not click error link ${err.ref}`);
+      continue;
+    }
+
+    await sleep(500);
+
+    // Take a snapshot focused on the field area
+    const fieldSnapshotPath = path.join(outputDir, `validation_error_${i + 1}.yml`);
+    await runPlaywrightCli(["snapshot", "--filename", fieldSnapshotPath]);
+
+    // Read the snapshot to find the field context
+    if (fs.existsSync(fieldSnapshotPath)) {
+      const fieldSnapshot = fs.readFileSync(fieldSnapshotPath, "utf8");
+
+      // Find the field in the snapshot by its ID
+      let fieldContext = "";
+      if (fieldId) {
+        const fieldLines = fieldSnapshot.split(/\r?\n/);
+        for (let j = 0; j < fieldLines.length; j++) {
+          // Look for elements with aria-invalid or the field ID
+          if (fieldLines[j].includes(`[aria-invalid`) || fieldLines[j].includes(fieldId.replace(/\./g, "%2E"))) {
+            // Grab surrounding context (5 lines before, 10 after)
+            const start = Math.max(0, j - 5);
+            const end = Math.min(fieldLines.length, j + 10);
+            fieldContext = fieldLines.slice(start, end).join("\n");
+            break;
+          }
+        }
+      }
+
+      if (fieldContext) {
+        console.log(`  ${i + 1}. [${fieldId}] "${err.text}"`);
+        console.log(`     Field context from snapshot:`);
+        console.log(fieldContext.split("\n").map((l) => `     ${l}`).join("\n"));
+        console.log("");
+      } else {
+        console.log(`  ${i + 1}. [${fieldId}] "${err.text}" — scrolled to field, see ${fieldSnapshotPath}`);
+      }
+    }
+  }
+
+  // Step 3: Scroll back to top
+  await runPlaywrightCliCapture(["eval", "window.scrollTo(0, 0)"]);
+
+  console.log(`\nFix these ${errors.length} field(s), then run 'form-tester validate' again before submitting.`);
+  return errors.length;
 }
 
 const PERSONAS = [
@@ -650,9 +912,12 @@ function printHelp() {
       "  form-tester test <url> --human          Interactive test with prompts",
       "  form-tester exec <command> [args]       Run playwright-cli command (recorded)",
       "  form-tester replay <recording.json>     Replay a recorded test run",
-      "  form-tester documents                   Verify document in Dokumenter (auto PDF/HTML)",
-      "  form-tester issue <category> <message>  Log an issue for skill improvement",
-      "  form-tester issues [limit]              Show recent logged issues",
+      "  form-tester cookies                      Dismiss cookie banner",
+      "  form-tester select-person [name]         Select person (recommended or by name)",
+      "  form-tester validate                     Parse validation errors, scroll to each field",
+      "  form-tester documents                    Verify document in Dokumenter (auto PDF/HTML)",
+      "  form-tester issue <category> <message>   Log an issue for skill improvement",
+      "  form-tester issues [limit]               Show recent logged issues",
       "",
       "Interactive commands:",
       "  /test {url}                 Open form URL and start test",
@@ -1540,6 +1805,24 @@ async function main() {
     const config = loadConfig();
     const verbosity = args.includes("--silent") ? "silent" : args.includes("--verbose") ? "verbose" : "normal";
     const code = await handleDocuments(config, { verbosity });
+    process.exit(code);
+  }
+
+  if (args[0] === "cookies") {
+    const code = await handleCookies();
+    process.exit(code);
+  }
+
+  if (args[0] === "select-person") {
+    const config = loadConfig();
+    const targetName = args.slice(1).join(" ") || null;
+    const code = await handleSelectPerson(config, targetName);
+    process.exit(code);
+  }
+
+  if (args[0] === "validate") {
+    const config = loadConfig();
+    const code = await handleValidate(config);
     process.exit(code);
   }
 

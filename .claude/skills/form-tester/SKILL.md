@@ -47,21 +47,31 @@ Replay a previous run:
 form-tester replay output/form-id/timestamp/recording.json
 ```
 
-## Document verification
+## Standardized commands
 
-After form submission, use the standardized documents command:
+Use these instead of manual steps — they handle retries, edge cases, and error logging automatically:
+
 ```bash
-form-tester documents        # auto-navigates, detects PDF/HTML, captures
+form-tester cookies                    # dismiss cookie banner (tries known selectors)
+form-tester select-person              # select recommended person ("Uromantisk Direktør")
+form-tester select-person "Name"       # select specific person by name
+form-tester validate                   # parse validation errors, scroll to each field, show context
+form-tester documents                  # navigate to Dokumenter, detect PDF/HTML, capture
+form-tester issue <category> "<text>"  # log an issue for skill improvement
+form-tester issues                     # view recent issues
 ```
-This handles the full flow: navigate to Dokumenter, find latest doc, detect format, download PDF or screenshot HTML.
+
+### Typical test flow:
+1. `form-tester test <url> --auto` — open form
+2. `form-tester cookies` — dismiss cookies
+3. `form-tester select-person` — select person
+4. Fill the form with `form-tester exec fill/click/select`
+5. Submit, then `form-tester validate` — find and fix any validation errors
+6. `form-tester documents` — verify document after successful submission
+7. `form-tester exec close` — finalize recording
 
 ## Issue logging
 
-When something unexpected happens during a test, log it for skill improvement:
-```bash
-form-tester issue <category> "<description>"
-form-tester issues              # view recent issues
-```
 Categories: `person-selection`, `navigation`, `form-fill`, `submission`, `documents`, `pdf-download`, `html-capture`, `screenshot`, `snapshot`, `validation`, `modal`, `timeout`, `other`
 
 ## Interactive commands
