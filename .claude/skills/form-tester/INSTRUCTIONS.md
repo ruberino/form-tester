@@ -76,6 +76,39 @@ IMPORTANT: Each prompt below MUST be asked as a separate message to the user. Wa
 3. Prompt for test scenario in a NEW separate message. Ask: "Any specific test scenario? (describe what to test, or Enter for standard clean test)". Wait for the user's response. If the user says nothing specific or "default" or just presses Enter, use standard test. The scenario is saved to scenario.json in the output directory.
 4. Only after receiving answers to all prompts: open browser, fill form, submit, verify.
 
+Form filling strategy:
+Before filling any fields, take a snapshot and study the FULL form structure:
+1. Identify ALL sections, including collapsed/accordion sections (buttons with arrow icons).
+2. Expand ALL collapsed sections FIRST by clicking their header buttons. Take a new snapshot after expanding.
+3. Identify ALL required fields across all sections before starting to fill.
+4. Fill fields section by section, top to bottom.
+
+Autosuggest / search fields (e.g. "Søk opp et legemiddel"):
+These fields show a dropdown with suggestions as you type. Do NOT use `fill` + `Enter` — the value won't commit.
+Instead:
+```
+form-tester exec fill <ref> "search text"
+```
+Then wait for the dropdown to appear and take a snapshot to find the suggestion element:
+```
+form-tester exec snapshot
+```
+Then click the correct suggestion from the dropdown list. If no dropdown appears, try:
+```
+form-tester exec run-code "async page => { const input = page.locator('#fieldId'); await input.fill('search text'); await page.waitForTimeout(1000); const option = page.locator('[role=\"option\"]').first(); await option.click(); }"
+```
+
+Handling validation errors after submit:
+CRITICAL RULES — follow these exactly:
+1. MAXIMUM 3 submit attempts. If validation errors persist after 3 attempts, STOP. Log the remaining errors with `form-tester issue validation "..."` and note them in test_results.txt. Do NOT keep retrying.
+2. After each failed submit, take a snapshot and READ the validation error list carefully.
+3. Each validation error is a clickable link with an href like `#fieldId`. Click the error link to scroll to and focus the unfilled field. This is the ONLY reliable way to find the field.
+4. After clicking the error link, take a snapshot to see the field in context and fill it.
+5. Do NOT re-fill fields that are already filled. Only fix the fields listed in the validation errors.
+6. Do NOT use JavaScript `dispatchEvent` hacks or `element.evaluate()` to set values — these bypass React's state and the form won't register the value. Always use Playwright's `fill`, `click`, `select` commands.
+7. Before resubmitting, verify that the number of validation errors has decreased. If the same errors persist after you tried to fix them, the approach isn't working — try a different strategy (e.g., expand a collapsed section, use a different selector).
+8. Some forms have accordion/collapsible sections. Validation errors inside collapsed sections cannot be filled until the section is expanded. Look for buttons near the error's field ID in the snapshot and click to expand.
+
 Post-submit verification:
 After a successful submission, read the modal text carefully:
 - If it says the form is stored in Dokumenter (e.g. "En kopi er også lagret i Dokumenter" or "Skjemaet er fullført og lagret i Dokumenter"), proceed with Dokumenter verification below.
