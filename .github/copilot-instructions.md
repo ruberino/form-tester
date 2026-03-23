@@ -15,12 +15,15 @@ form-tester install
 When the user gives you a form URL to test, execute ALL steps below in sequence WITHOUT stopping to ask. Do not ask "want me to continue?" — just do the entire flow.
 
 ### Step 1 — Start the test
+
+If the user gives a partial URL (e.g. `skjemautfyller/SLV-PasRapp-2020`), read `form-tester.config.json` first to get `baseUrl` and `pnr`. Construct the full URL as `{baseUrl}/{partial-path}?pnr={pnr}`. Do NOT guess the domain — always use `baseUrl` from config.
+
 ```bash
-form-tester test <url> --auto
+form-tester test <full-url> --auto
 ```
 Or with options:
 ```bash
-form-tester test <url> --auto --pnr 12345 --persona ung-mann --scenario "test validation"
+form-tester test <full-url> --auto --pnr 12345 --persona ung-mann --scenario "test validation"
 ```
 
 ### Step 2 — Dismiss cookies
