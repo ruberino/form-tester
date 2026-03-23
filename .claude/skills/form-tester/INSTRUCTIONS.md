@@ -5,9 +5,10 @@ Install (user runs once):
 npm install -g form-tester
 ```
 
-Install skill files:
+Install skill files and configure:
 ```
 form-tester install
+form-tester init          # set baseUrl, pnr, person, etc.
 ```
 
 Test modes:

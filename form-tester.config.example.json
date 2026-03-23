@@ -2,5 +2,6 @@
   "pnr": "YOUR_PNR_HERE",
   "person": "",
   "baseUrl": "",
-  "skjemaUrl": "/skjemautfyller"
+  "skjemaUrl": "/skjemautfyller",
+  "dokumenterUrlTemplate": "/dokumenter?pnr={PNR}"
 }

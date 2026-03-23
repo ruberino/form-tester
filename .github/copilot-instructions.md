@@ -8,6 +8,7 @@ User must install globally first:
 ```bash
 npm install -g form-tester
 form-tester install
+form-tester init          # set baseUrl, pnr, person, etc.
 ```
 
 ## Running a test

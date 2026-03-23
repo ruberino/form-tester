@@ -7,7 +7,7 @@ const { spawn, execSync } = require("child_process");
 const CONFIG_PATH = path.join(process.cwd(), "form-tester.config.json");
 const OUTPUT_BASE = path.resolve(process.cwd(), "output");
 const ISSUES_PATH = path.join(OUTPUT_BASE, "issues.jsonl");
-const LOCAL_VERSION = "0.11.0";
+const LOCAL_VERSION = "0.11.1";
 const RECOMMENDED_PERSON = "Uromantisk Direktør";
 
 // Recording — persisted to disk so `form-tester exec` can append across processes
@@ -936,6 +936,7 @@ function printHelp() {
     [
       "",
       "Subcommands (run directly):",
+      "  form-tester init                         Set up config (baseUrl, pnr, person, etc.)",
       "  form-tester install [--global]          Install skill files into project or ~/.claude/skills/",
       "  form-tester test <name-or-url> --auto    Non-interactive test (for AI agents)",
       "  form-tester test <name-or-url> --human  Interactive test with prompts",
@@ -1736,6 +1737,51 @@ function install(targetDir, isGlobal) {
 async function main() {
   const args = process.argv.slice(2);
 
+  if (args[0] === "init") {
+    const config = loadConfig();
+    console.log("Form Tester Setup\n");
+    console.log("Current config:");
+    console.log(`  baseUrl:       ${config.baseUrl || "(not set)"}`);
+    console.log(`  pnr:           ${config.pnr || "(not set)"}`);
+    console.log(`  person:        ${config.person || "(not set)"}`);
+    console.log(`  skjemaUrl:     ${config.skjemaUrl || "/skjemautfyller"}`);
+    console.log(`  dokumenterUrl: ${config.dokumenterUrlTemplate || "/dokumenter?pnr={PNR}"}`);
+    console.log("");
+
+    const currentRl = ensureReadline();
+
+    const prompt = (question, current) => new Promise((resolve) => {
+      const suffix = current ? ` [${current}]` : "";
+      currentRl.question(`${question}${suffix}: `, (answer) => {
+        resolve(answer.trim() || current || "");
+      });
+    });
+
+    config.baseUrl = await prompt("Base URL (e.g. https://tjenester-a-vak-sprak.int-hn.nhn.no)", config.baseUrl);
+    config.pnr = await prompt("PNR (fødselsnummer for test)", config.pnr);
+    config.person = await prompt("Default person name (e.g. Uromantisk Direktør)", config.person);
+    config.skjemaUrl = await prompt("Skjema path prefix", config.skjemaUrl || "/skjemautfyller");
+    config.dokumenterUrlTemplate = await prompt("Dokumenter URL template", config.dokumenterUrlTemplate || "/dokumenter?pnr={PNR}");
+
+    saveConfig(config);
+    currentRl.close();
+
+    console.log("\nConfig saved to form-tester.config.json:");
+    console.log(`  baseUrl:       ${config.baseUrl}`);
+    console.log(`  pnr:           ${config.pnr}`);
+    console.log(`  person:        ${config.person}`);
+    console.log(`  skjemaUrl:     ${config.skjemaUrl}`);
+    console.log(`  dokumenterUrl: ${config.dokumenterUrlTemplate}`);
+
+    // Test URL resolution
+    console.log(`\nTest: form-tester test SLV-PasRapp-2020 --auto`);
+    const testUrl = resolveFormUrl("SLV-PasRapp-2020", config);
+    const withPnr = config.pnr && !extractPnrFromUrl(testUrl) ? setPnrOnUrl(testUrl, config.pnr) : testUrl;
+    console.log(`  → ${withPnr}`);
+
+    process.exit(0);
+  }
+
   if (args[0] === "install") {
     const isGlobal = args.includes("--global") || args.includes("-g");
     const remaining = args.slice(1).filter((a) => a !== "--global" && a !== "-g");
@@ -1850,13 +1896,21 @@ async function main() {
       console.error("  form-tester url skjemautfyller/SLV-PasRapp-2020");
       console.error("  form-tester url https://example.com/skjemautfyller/FORM");
       console.error(`\nConfig: baseUrl=${config.baseUrl || "(not set)"}, skjemaUrl=${config.skjemaUrl || "/skjemautfyller"}, pnr=${config.pnr || "(not set)"}`);
+      console.error("\nRun 'form-tester init' to configure.");
       process.exit(1);
     }
-    let resolved = resolveFormUrl(input, config);
-    if (config.pnr && !extractPnrFromUrl(resolved)) {
-      resolved = setPnrOnUrl(resolved, config.pnr);
+    let formUrl = resolveFormUrl(input, config);
+    if (config.pnr && !extractPnrFromUrl(formUrl)) {
+      formUrl = setPnrOnUrl(formUrl, config.pnr);
     }
-    console.log(resolved);
+    // Also resolve dokumenter URL
+    const tmpConfig = { ...config, lastTestUrl: formUrl };
+    const dokUrl = resolveDokumenterUrl(tmpConfig);
+
+    console.log(`Form URL:       ${formUrl}`);
+    console.log(`Dokumenter URL: ${dokUrl || "(not available — set pnr)"}`);
+    console.log(`Person:         ${config.person || "(not set)"}`);
+    console.log(`\nRun: form-tester test ${input} --auto`);
     process.exit(0);
   }
 
