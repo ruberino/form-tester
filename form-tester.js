@@ -7,7 +7,7 @@ const { spawn, execSync } = require("child_process");
 const CONFIG_PATH = path.join(process.cwd(), "form-tester.config.json");
 const OUTPUT_BASE = path.resolve(process.cwd(), "output");
 const ISSUES_PATH = path.join(OUTPUT_BASE, "issues.jsonl");
-const LOCAL_VERSION = "0.11.4";
+const LOCAL_VERSION = "0.11.5";
 const RECOMMENDED_PERSON = "Uromantisk Direktør";
 
 // Recording — persisted to disk so `form-tester exec` can append across processes
@@ -175,40 +175,91 @@ async function handleDocuments(config, flags = {}) {
     if (checkText.includes("Hvem vil du bruke Helsenorge") || checkText.includes("personliste")) {
       log("Person selection detected on Dokumenter page.");
       const personName = config.lastPerson || config.person || RECOMMENDED_PERSON;
-      // Find the button ref directly from the snapshot text
+      // Find the button ref INSIDE the person list region (not the nav header)
       let clickRef = null;
       const lines = checkText.split(/\r?\n/);
+      let inRegion = false;
       for (const line of lines) {
+        if (line.includes('region "Hvem vil du bruke Helsenorge')) inRegion = true;
+        if (!inRegion) continue;
         const btnMatch = line.match(/button "([^"]*)" \[ref=(e\d+)\]/);
-        if (btnMatch && btnMatch[1].includes(personName)) {
-          clickRef = btnMatch[2];
-          log(`Found person button: "${btnMatch[1]}" (ref=${clickRef})`);
-          break;
-        }
-      }
-      // Fallback: find first button inside the person list region
-      if (!clickRef) {
-        let inRegion = false;
-        for (const line of lines) {
-          if (line.includes('region "Hvem vil du bruke Helsenorge')) inRegion = true;
-          if (inRegion) {
-            const btnMatch = line.match(/button "[^"]*" \[ref=(e\d+)\]/);
-            if (btnMatch) {
-              clickRef = btnMatch[1];
-              log(`Fallback: clicking first person button (ref=${clickRef})`);
-              break;
-            }
+        if (btnMatch) {
+          // First try to match person name
+          if (btnMatch[1].includes(personName)) {
+            clickRef = btnMatch[2];
+            log(`Found person button: "${btnMatch[1]}" (ref=${clickRef})`);
+            break;
+          }
+          // Or take first button in region as fallback
+          if (!clickRef) {
+            clickRef = btnMatch[2];
           }
         }
       }
+      if (clickRef && !lines.some((l) => l.includes(personName) && l.includes(clickRef))) {
+        log(`Fallback: clicking first person button in region (ref=${clickRef})`);
+      }
       if (clickRef) {
         await runPlaywrightCli(["click", clickRef]);
-        log("Person selected on Dokumenter page.");
+        log("Person clicked on Dokumenter page. Waiting for navigation...");
+        await sleep(3000);
+        // Verify we left the person picker — take a new snapshot
+        const verifySnapshot = path.join(outputDir, "dokumenter_verify.yml");
+        await runPlaywrightCli(["snapshot", "--filename", verifySnapshot]);
+        if (fs.existsSync(verifySnapshot)) {
+          const verifyText = fs.readFileSync(verifySnapshot, "utf8");
+          if (verifyText.includes("Hvem vil du bruke Helsenorge")) {
+            // Still on person picker — the click might have opened the nav dropdown instead
+            // Try clicking the person button inside the full-page list (region), not the nav
+            log("Still on person picker. Looking for person in full-page list...");
+            const regionLines = verifyText.split(/\r?\n/);
+            let inFullPageRegion = false;
+            let retryRef = null;
+            for (const line of regionLines) {
+              if (line.includes('region "Hvem vil du bruke Helsenorge')) inFullPageRegion = true;
+              if (line.includes('listitem') && inFullPageRegion) {
+                const btnMatch = line.match(/button "[^"]*" \[ref=(e\d+)\]/);
+                // Also check next lines for button
+                if (btnMatch) {
+                  retryRef = btnMatch[1];
+                  break;
+                }
+              }
+              if (inFullPageRegion) {
+                const btnMatch = line.match(/button "([^"]*)" \[ref=(e\d+)\]/);
+                if (btnMatch && btnMatch[1].includes(personName)) {
+                  retryRef = btnMatch[2];
+                  break;
+                }
+              }
+            }
+            // If region-based search didn't find it, just click first listitem button in region
+            if (!retryRef && inFullPageRegion) {
+              let inList = false;
+              for (const line of regionLines) {
+                if (line.includes('region "Hvem vil du bruke Helsenorge')) inList = true;
+                if (inList) {
+                  const btnMatch = line.match(/button "[^"]*" \[ref=(e\d+)\].*\[cursor=pointer\]/);
+                  if (btnMatch) {
+                    retryRef = btnMatch[1];
+                    break;
+                  }
+                }
+              }
+            }
+            if (retryRef) {
+              log(`Retrying with ref=${retryRef}...`);
+              await runPlaywrightCli(["click", retryRef]);
+              await sleep(3000);
+            }
+          }
+          try { fs.unlinkSync(verifySnapshot); } catch (e) {}
+        }
       } else {
         log("Could not find person button in snapshot. Trying select-person...");
         await handleSelectPerson(config, personName);
+        await sleep(3000);
       }
-      await sleep(2000);
     }
     try { fs.unlinkSync(checkSnapshot); } catch (e) {}
   }
