@@ -7,7 +7,7 @@ const { spawn, execSync } = require("child_process");
 const CONFIG_PATH = path.join(process.cwd(), "form-tester.config.json");
 const OUTPUT_BASE = path.resolve(process.cwd(), "output");
 const ISSUES_PATH = path.join(OUTPUT_BASE, "issues.jsonl");
-const LOCAL_VERSION = "0.11.2";
+const LOCAL_VERSION = "0.11.3";
 const RECOMMENDED_PERSON = "Uromantisk Direktør";
 
 // Recording — persisted to disk so `form-tester exec` can append across processes
@@ -167,14 +167,35 @@ async function handleDocuments(config, flags = {}) {
   }
   await sleep(2000);
 
-  // Step 2: Check if person selection is needed (same page as form)
+  // Step 2: Check if person selection is needed
   const checkSnapshot = path.join(outputDir, "dokumenter_check.yml");
   await runPlaywrightCli(["snapshot", "--filename", checkSnapshot]);
   if (fs.existsSync(checkSnapshot)) {
     const checkText = fs.readFileSync(checkSnapshot, "utf8");
     if (checkText.includes("Hvem vil du bruke Helsenorge") || checkText.includes("personliste")) {
       log("Person selection detected on Dokumenter page. Selecting person...");
-      await handleSelectPerson(config, config.lastPerson || config.person || null);
+      // Use direct click approach — the person page has simple buttons with person names
+      const personName = config.lastPerson || config.person || RECOMMENDED_PERSON;
+      const clickScript = `() => {
+        const buttons = Array.from(document.querySelectorAll('button'));
+        const target = ${JSON.stringify(personName)};
+        for (const btn of buttons) {
+          const text = (btn.textContent || "").replace(/\\s+/g, " ").trim();
+          if (text.includes(target)) { btn.click(); return "clicked: " + text.substring(0, 60); }
+        }
+        // Fallback: click first person button (usually has class personliste__person)
+        const first = document.querySelector('button[class*="personliste"], button[class*="person"]');
+        if (first) { first.click(); return "clicked-first: " + (first.textContent || "").trim().substring(0, 60); }
+        return "not-found";
+      }`;
+      const personResult = await runPlaywrightCliCapture(["eval", clickScript]);
+      const personOutput = personResult.stdout.replace(/^### Result\s*/i, "").trim();
+      if (personOutput.startsWith("clicked")) {
+        log(`Person selected: ${personOutput}`);
+      } else {
+        log("Could not auto-select person. Trying select-person command...");
+        await handleSelectPerson(config, personName);
+      }
       await sleep(2000);
     }
     try { fs.unlinkSync(checkSnapshot); } catch (e) {}
