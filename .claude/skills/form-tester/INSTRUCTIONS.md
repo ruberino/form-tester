@@ -153,7 +153,7 @@ Step 9 — Dokumenter verification (only when modal confirms storage):
 ```
 form-tester documents
 ```
-This handles the full flow: navigate to Dokumenter, find latest doc, detect format, download PDF or screenshot HTML.
+This handles the full flow: navigate to Dokumenter, select person if needed, find latest doc, detect format, download PDF or screenshot HTML.
 
 If `form-tester documents` fails (logged as issues), fall back to manual steps:
 1. Navigate to `/dokumenter?pnr={PNR}` and select the same person.

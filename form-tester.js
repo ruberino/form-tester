@@ -7,7 +7,7 @@ const { spawn, execSync } = require("child_process");
 const CONFIG_PATH = path.join(process.cwd(), "form-tester.config.json");
 const OUTPUT_BASE = path.resolve(process.cwd(), "output");
 const ISSUES_PATH = path.join(OUTPUT_BASE, "issues.jsonl");
-const LOCAL_VERSION = "0.11.1";
+const LOCAL_VERSION = "0.11.2";
 const RECOMMENDED_PERSON = "Uromantisk Direktør";
 
 // Recording — persisted to disk so `form-tester exec` can append across processes
@@ -167,13 +167,26 @@ async function handleDocuments(config, flags = {}) {
   }
   await sleep(2000);
 
-  // Step 2: Take snapshot of document list
+  // Step 2: Check if person selection is needed (same page as form)
+  const checkSnapshot = path.join(outputDir, "dokumenter_check.yml");
+  await runPlaywrightCli(["snapshot", "--filename", checkSnapshot]);
+  if (fs.existsSync(checkSnapshot)) {
+    const checkText = fs.readFileSync(checkSnapshot, "utf8");
+    if (checkText.includes("Hvem vil du bruke Helsenorge") || checkText.includes("personliste")) {
+      log("Person selection detected on Dokumenter page. Selecting person...");
+      await handleSelectPerson(config, config.lastPerson || config.person || null);
+      await sleep(2000);
+    }
+    try { fs.unlinkSync(checkSnapshot); } catch (e) {}
+  }
+
+  // Step 3: Take snapshot of document list
   const docListSnapshot = path.join(outputDir, "dokumenter.yml");
   await runPlaywrightCli(["snapshot", "--filename", docListSnapshot]);
   await runPlaywrightCli(["screenshot", "--filename", path.join(outputDir, "dokumenter.png"), "--full-page"]);
   log("Saved: dokumenter.yml + dokumenter.png");
 
-  // Step 3: Click first document's "Se detaljer"
+  // Step 4: Click first document's "Se detaljer"
   log("Looking for first document...");
   const clickResult = await runPlaywrightCliCapture(["eval", '() => { const link = document.querySelector("a[href*=\\"detaljer\\"], button:has-text(\\"Se detaljer\\"), a:has-text(\\"Se detaljer\\")"); if (link) { link.click(); return "clicked"; } return "not-found"; }']);
   if (clickResult.stdout.includes("not-found")) {
