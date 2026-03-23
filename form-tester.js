@@ -7,7 +7,7 @@ const { spawn, execSync } = require("child_process");
 const CONFIG_PATH = path.join(process.cwd(), "form-tester.config.json");
 const OUTPUT_BASE = path.resolve(process.cwd(), "output");
 const ISSUES_PATH = path.join(OUTPUT_BASE, "issues.jsonl");
-const LOCAL_VERSION = "0.11.3";
+const LOCAL_VERSION = "0.11.4";
 const RECOMMENDED_PERSON = "Uromantisk Direktør";
 
 // Recording — persisted to disk so `form-tester exec` can append across processes
@@ -167,33 +167,45 @@ async function handleDocuments(config, flags = {}) {
   }
   await sleep(2000);
 
-  // Step 2: Check if person selection is needed
+  // Step 2: Check if person selection is needed — parse snapshot for person buttons
   const checkSnapshot = path.join(outputDir, "dokumenter_check.yml");
   await runPlaywrightCli(["snapshot", "--filename", checkSnapshot]);
   if (fs.existsSync(checkSnapshot)) {
     const checkText = fs.readFileSync(checkSnapshot, "utf8");
     if (checkText.includes("Hvem vil du bruke Helsenorge") || checkText.includes("personliste")) {
-      log("Person selection detected on Dokumenter page. Selecting person...");
-      // Use direct click approach — the person page has simple buttons with person names
+      log("Person selection detected on Dokumenter page.");
       const personName = config.lastPerson || config.person || RECOMMENDED_PERSON;
-      const clickScript = `() => {
-        const buttons = Array.from(document.querySelectorAll('button'));
-        const target = ${JSON.stringify(personName)};
-        for (const btn of buttons) {
-          const text = (btn.textContent || "").replace(/\\s+/g, " ").trim();
-          if (text.includes(target)) { btn.click(); return "clicked: " + text.substring(0, 60); }
+      // Find the button ref directly from the snapshot text
+      let clickRef = null;
+      const lines = checkText.split(/\r?\n/);
+      for (const line of lines) {
+        const btnMatch = line.match(/button "([^"]*)" \[ref=(e\d+)\]/);
+        if (btnMatch && btnMatch[1].includes(personName)) {
+          clickRef = btnMatch[2];
+          log(`Found person button: "${btnMatch[1]}" (ref=${clickRef})`);
+          break;
         }
-        // Fallback: click first person button (usually has class personliste__person)
-        const first = document.querySelector('button[class*="personliste"], button[class*="person"]');
-        if (first) { first.click(); return "clicked-first: " + (first.textContent || "").trim().substring(0, 60); }
-        return "not-found";
-      }`;
-      const personResult = await runPlaywrightCliCapture(["eval", clickScript]);
-      const personOutput = personResult.stdout.replace(/^### Result\s*/i, "").trim();
-      if (personOutput.startsWith("clicked")) {
-        log(`Person selected: ${personOutput}`);
+      }
+      // Fallback: find first button inside the person list region
+      if (!clickRef) {
+        let inRegion = false;
+        for (const line of lines) {
+          if (line.includes('region "Hvem vil du bruke Helsenorge')) inRegion = true;
+          if (inRegion) {
+            const btnMatch = line.match(/button "[^"]*" \[ref=(e\d+)\]/);
+            if (btnMatch) {
+              clickRef = btnMatch[1];
+              log(`Fallback: clicking first person button (ref=${clickRef})`);
+              break;
+            }
+          }
+        }
+      }
+      if (clickRef) {
+        await runPlaywrightCli(["click", clickRef]);
+        log("Person selected on Dokumenter page.");
       } else {
-        log("Could not auto-select person. Trying select-person command...");
+        log("Could not find person button in snapshot. Trying select-person...");
         await handleSelectPerson(config, personName);
       }
       await sleep(2000);
