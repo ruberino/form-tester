@@ -1,3 +1,5 @@
 {
-  "pnr": "YOUR_PNR_HERE"
+  "pnr": "YOUR_PNR_HERE",
+  "person": "",
+  "baseUrl": ""
 }

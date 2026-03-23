@@ -7,7 +7,7 @@ const { spawn, execSync } = require("child_process");
 const CONFIG_PATH = path.join(process.cwd(), "form-tester.config.json");
 const OUTPUT_BASE = path.resolve(process.cwd(), "output");
 const ISSUES_PATH = path.join(OUTPUT_BASE, "issues.jsonl");
-const LOCAL_VERSION = "0.10.1";
+const LOCAL_VERSION = "0.10.2";
 const RECOMMENDED_PERSON = "Uromantisk Direktør";
 
 // Recording — persisted to disk so `form-tester exec` can append across processes
@@ -299,6 +299,12 @@ async function handleCookies() {
 async function handleSelectPerson(config, targetName) {
   const v = "normal";
   const log = (msg) => console.log(msg);
+
+  // Use config.person as default if no target specified
+  if (!targetName && config.person) {
+    targetName = config.person;
+    log(`Using configured person: ${targetName}`);
+  }
 
   // Step 1: Try to find person list from current page snapshot
   const tmpSnapshot = path.join(
@@ -651,6 +657,8 @@ async function promptPersona(config) {
 }
 const DEFAULT_CONFIG = {
   pnr: "",
+  person: "",
+  baseUrl: "",
   dokumenterUrlTemplate: "/dokumenter?pnr={PNR}",
   lastTestUrl: "",
   lastRunDir: "",
@@ -673,11 +681,17 @@ function saveConfig(config) {
 
 function resolveDokumenterUrl(config) {
   if (!config.dokumenterUrlTemplate) return "";
-  if (config.dokumenterUrlTemplate.includes("{PNR}")) {
+  let url = config.dokumenterUrlTemplate;
+  if (url.includes("{PNR}")) {
     if (!config.pnr) return "";
-    return config.dokumenterUrlTemplate.replace("{PNR}", config.pnr);
+    url = url.replace("{PNR}", config.pnr);
   }
-  return config.dokumenterUrlTemplate;
+  // If the URL is a relative path, prepend the base URL
+  if (url.startsWith("/")) {
+    const base = config.baseUrl || (config.lastTestUrl ? (() => { try { return new URL(config.lastTestUrl).origin; } catch (e) { return ""; } })() : "");
+    if (base) url = `${base}${url}`;
+  }
+  return url;
 }
 
 function extractPnrFromUrl(url) {
@@ -1346,6 +1360,7 @@ async function handleTest(url, config) {
 
   config.lastTestUrl = updated.url;
   config.lastRunDir = outputDir;
+  try { config.baseUrl = new URL(updated.url).origin; } catch (e) {}
   saveConfig(config);
 
   // Start recording and persist path to config for `exec`
@@ -1463,6 +1478,7 @@ async function handleTestAuto(url, config, flags) {
 
   config.lastTestUrl = fullUrl;
   config.lastRunDir = outputDir;
+  try { config.baseUrl = new URL(fullUrl).origin; } catch (e) {}
   saveConfig(config);
 
   // Start recording and persist path to config for `exec`
