@@ -7,7 +7,7 @@ const { spawn, execSync } = require("child_process");
 const CONFIG_PATH = path.join(process.cwd(), "form-tester.config.json");
 const OUTPUT_BASE = path.resolve(process.cwd(), "output");
 const ISSUES_PATH = path.join(OUTPUT_BASE, "issues.jsonl");
-const LOCAL_VERSION = "0.11.5";
+const LOCAL_VERSION = "0.12.0";
 const RECOMMENDED_PERSON = "Uromantisk Direktør";
 
 // Recording — persisted to disk so `form-tester exec` can append across processes
@@ -139,16 +139,38 @@ function formatIssue(issue) {
   return `[${time}] [${issue.category}]${formId}${url}\n  ${issue.message}`;
 }
 
+// Helper: find a person button ref inside the person picker region of a snapshot
+function findPersonRefInSnapshot(snapshotText, personName) {
+  const lines = snapshotText.split(/\r?\n/);
+  let inRegion = false;
+  let firstRef = null;
+  for (const line of lines) {
+    if (line.includes('region "Hvem vil du bruke Helsenorge')) inRegion = true;
+    if (!inRegion) continue;
+    const btnMatch = line.match(/button "([^"]*)" \[ref=(e\d+)\]/);
+    if (btnMatch) {
+      if (!firstRef) firstRef = btnMatch[2];
+      if (btnMatch[1].includes(personName)) return btnMatch[2];
+    }
+  }
+  return firstRef; // fallback: first button in region
+}
+
+// Helper: detect what page we're on from a snapshot
+function detectPage(snapshotText) {
+  if (!snapshotText) return "unknown";
+  if (snapshotText.includes("Hvem vil du bruke Helsenorge")) return "person-picker";
+  if (snapshotText.includes("cookie") || snapshotText.includes("informasjonskapsler")) return "cookies";
+  if (snapshotText.includes('main "Dokumenter"') || snapshotText.includes("Se detaljer")) return "document-list";
+  if (snapshotText.includes("Åpne dokumentet")) return "document-detail";
+  if (/href.*\/pdf\//i.test(snapshotText) || /blob:/i.test(snapshotText) || /\.pdf/i.test(snapshotText)) return "document-pdf";
+  if (snapshotText.length > 2000) return "document-html"; // substantial content, likely the doc
+  return "unknown";
+}
+
 async function handleDocuments(config, flags = {}) {
   const v = flags.verbosity || "normal";
   const log = (msg) => { if (v !== "silent") console.log(msg); };
-
-  const dokumenterUrl = resolveDokumenterUrl(config);
-  if (!dokumenterUrl) {
-    console.error("No Dokumenter URL available. Set pnr in config or URL.");
-    logIssue("documents", "No Dokumenter URL — missing PNR", { url: config.lastTestUrl });
-    return 1;
-  }
 
   const outputDir = config.lastRunDir;
   if (!outputDir) {
@@ -157,201 +179,131 @@ async function handleDocuments(config, flags = {}) {
   }
   fs.mkdirSync(outputDir, { recursive: true });
 
-  // Step 1: Navigate to Dokumenter
-  log(`Navigating to Dokumenter: ${dokumenterUrl}`);
-  let code = await runPlaywrightCli(["goto", dokumenterUrl]);
-  if (code !== 0) {
-    logIssue("documents", `Failed to navigate to Dokumenter (exit ${code})`, { url: dokumenterUrl });
-    console.error("Failed to navigate to Dokumenter.");
-    return code;
-  }
-  await sleep(2000);
+  const personName = config.lastPerson || config.person || RECOMMENDED_PERSON;
+  const maxSteps = 8; // safety limit
 
-  // Step 2: Check if person selection is needed — parse snapshot for person buttons
-  const checkSnapshot = path.join(outputDir, "dokumenter_check.yml");
-  await runPlaywrightCli(["snapshot", "--filename", checkSnapshot]);
-  if (fs.existsSync(checkSnapshot)) {
-    const checkText = fs.readFileSync(checkSnapshot, "utf8");
-    if (checkText.includes("Hvem vil du bruke Helsenorge") || checkText.includes("personliste")) {
-      log("Person selection detected on Dokumenter page.");
-      const personName = config.lastPerson || config.person || RECOMMENDED_PERSON;
-      // Find the button ref INSIDE the person list region (not the nav header)
-      let clickRef = null;
-      const lines = checkText.split(/\r?\n/);
-      let inRegion = false;
+  for (let step = 0; step < maxSteps; step++) {
+    // Take snapshot to detect current page state
+    const snapPath = path.join(outputDir, `doc_step_${step}.yml`);
+    await runPlaywrightCli(["snapshot", "--filename", snapPath]);
+    const snapText = fs.existsSync(snapPath) ? fs.readFileSync(snapPath, "utf8") : "";
+    const page = detectPage(snapText);
+    log(`Step ${step + 1}: detected page = ${page}`);
+
+    if (page === "cookies") {
+      log("Dismissing cookies...");
+      await handleCookies();
+      await sleep(1000);
+      continue;
+    }
+
+    if (page === "person-picker") {
+      log("Selecting person...");
+      const ref = findPersonRefInSnapshot(snapText, personName);
+      if (ref) {
+        await runPlaywrightCli(["click", ref]);
+        log(`Clicked person button ref=${ref}`);
+      } else {
+        log("No person button found in snapshot.");
+        logIssue("person-selection", "No person button found in Dokumenter snapshot");
+      }
+      await sleep(3000);
+      continue;
+    }
+
+    if (page === "document-list") {
+      // Save the document list
+      fs.copyFileSync(snapPath, path.join(outputDir, "dokumenter.yml"));
+      await runPlaywrightCli(["screenshot", "--filename", path.join(outputDir, "dokumenter.png"), "--full-page"]);
+      log("Saved: dokumenter.yml + dokumenter.png");
+
+      // Click "Se detaljer" on first document — find it in the snapshot
+      const lines = snapText.split(/\r?\n/);
+      let detailRef = null;
       for (const line of lines) {
-        if (line.includes('region "Hvem vil du bruke Helsenorge')) inRegion = true;
-        if (!inRegion) continue;
-        const btnMatch = line.match(/button "([^"]*)" \[ref=(e\d+)\]/);
-        if (btnMatch) {
-          // First try to match person name
-          if (btnMatch[1].includes(personName)) {
-            clickRef = btnMatch[2];
-            log(`Found person button: "${btnMatch[1]}" (ref=${clickRef})`);
-            break;
-          }
-          // Or take first button in region as fallback
-          if (!clickRef) {
-            clickRef = btnMatch[2];
-          }
-        }
+        const match = line.match(/button "Se detaljer" \[ref=(e\d+)\]/);
+        if (match) { detailRef = match[1]; break; }
       }
-      if (clickRef && !lines.some((l) => l.includes(personName) && l.includes(clickRef))) {
-        log(`Fallback: clicking first person button in region (ref=${clickRef})`);
-      }
-      if (clickRef) {
-        await runPlaywrightCli(["click", clickRef]);
-        log("Person clicked on Dokumenter page. Waiting for navigation...");
-        await sleep(3000);
-        // Verify we left the person picker — take a new snapshot
-        const verifySnapshot = path.join(outputDir, "dokumenter_verify.yml");
-        await runPlaywrightCli(["snapshot", "--filename", verifySnapshot]);
-        if (fs.existsSync(verifySnapshot)) {
-          const verifyText = fs.readFileSync(verifySnapshot, "utf8");
-          if (verifyText.includes("Hvem vil du bruke Helsenorge")) {
-            // Still on person picker — the click might have opened the nav dropdown instead
-            // Try clicking the person button inside the full-page list (region), not the nav
-            log("Still on person picker. Looking for person in full-page list...");
-            const regionLines = verifyText.split(/\r?\n/);
-            let inFullPageRegion = false;
-            let retryRef = null;
-            for (const line of regionLines) {
-              if (line.includes('region "Hvem vil du bruke Helsenorge')) inFullPageRegion = true;
-              if (line.includes('listitem') && inFullPageRegion) {
-                const btnMatch = line.match(/button "[^"]*" \[ref=(e\d+)\]/);
-                // Also check next lines for button
-                if (btnMatch) {
-                  retryRef = btnMatch[1];
-                  break;
-                }
-              }
-              if (inFullPageRegion) {
-                const btnMatch = line.match(/button "([^"]*)" \[ref=(e\d+)\]/);
-                if (btnMatch && btnMatch[1].includes(personName)) {
-                  retryRef = btnMatch[2];
-                  break;
-                }
-              }
-            }
-            // If region-based search didn't find it, just click first listitem button in region
-            if (!retryRef && inFullPageRegion) {
-              let inList = false;
-              for (const line of regionLines) {
-                if (line.includes('region "Hvem vil du bruke Helsenorge')) inList = true;
-                if (inList) {
-                  const btnMatch = line.match(/button "[^"]*" \[ref=(e\d+)\].*\[cursor=pointer\]/);
-                  if (btnMatch) {
-                    retryRef = btnMatch[1];
-                    break;
-                  }
-                }
-              }
-            }
-            if (retryRef) {
-              log(`Retrying with ref=${retryRef}...`);
-              await runPlaywrightCli(["click", retryRef]);
-              await sleep(3000);
-            }
-          }
-          try { fs.unlinkSync(verifySnapshot); } catch (e) {}
-        }
+      if (detailRef) {
+        await runPlaywrightCli(["click", detailRef]);
+        log(`Clicked 'Se detaljer' (ref=${detailRef})`);
       } else {
-        log("Could not find person button in snapshot. Trying select-person...");
-        await handleSelectPerson(config, personName);
-        await sleep(3000);
+        log("Could not find 'Se detaljer' in snapshot.");
+        logIssue("documents", "No 'Se detaljer' button found in document list");
       }
+      await sleep(2000);
+      continue;
     }
-    try { fs.unlinkSync(checkSnapshot); } catch (e) {}
-  }
 
-  // Step 3: Take snapshot of document list
-  const docListSnapshot = path.join(outputDir, "dokumenter.yml");
-  await runPlaywrightCli(["snapshot", "--filename", docListSnapshot]);
-  await runPlaywrightCli(["screenshot", "--filename", path.join(outputDir, "dokumenter.png"), "--full-page"]);
-  log("Saved: dokumenter.yml + dokumenter.png");
-
-  // Step 4: Click first document's "Se detaljer"
-  log("Looking for first document...");
-  const clickResult = await runPlaywrightCliCapture(["eval", '() => { const link = document.querySelector("a[href*=\\"detaljer\\"], button:has-text(\\"Se detaljer\\"), a:has-text(\\"Se detaljer\\")"); if (link) { link.click(); return "clicked"; } return "not-found"; }']);
-  if (clickResult.stdout.includes("not-found")) {
-    logIssue("documents", "Could not find 'Se detaljer' link on Dokumenter page", { url: dokumenterUrl });
-    log("Could not find 'Se detaljer'. Check dokumenter.yml for the page structure.");
-    // Still continue — agent can handle manually
-  } else {
-    log("Clicked 'Se detaljer' on first document.");
-    await sleep(2000);
-  }
-
-  // Step 4: Click "Åpne dokumentet"
-  const openResult = await runPlaywrightCliCapture(["eval", '() => { const link = document.querySelector("a:has-text(\\"Åpne dokumentet\\"), button:has-text(\\"Åpne dokumentet\\")"); if (link) { link.click(); return "clicked"; } return "not-found"; }']);
-  if (openResult.stdout.includes("not-found")) {
-    logIssue("documents", "Could not find 'Åpne dokumentet' link", { url: dokumenterUrl });
-    log("Could not find 'Åpne dokumentet'. Take a snapshot to inspect the page.");
-  } else {
-    log("Clicked 'Åpne dokumentet'.");
-    await sleep(3000);
-  }
-
-  // Step 5: Detect format (PDF vs HTML)
-  const docSnapshot = path.join(outputDir, "document.yml");
-  await runPlaywrightCli(["snapshot", "--filename", docSnapshot]);
-
-  let format = "unknown";
-  if (fs.existsSync(docSnapshot)) {
-    const snapshotText = fs.readFileSync(docSnapshot, "utf8");
-    if (/href.*\/pdf\//i.test(snapshotText) || /blob:/i.test(snapshotText) || /\.pdf/i.test(snapshotText)) {
-      format = "pdf";
-    } else if (snapshotText.length > 500) {
-      // Has substantial content — likely HTML
-      format = "html";
-    }
-  }
-  log(`Detected document format: ${format}`);
-
-  // Step 6: Capture based on format
-  if (format === "pdf") {
-    log("Attempting PDF download...");
-    // Try direct PDF link first
-    const dlCode = await runPlaywrightCli(["run-code", `async page => { const link = page.locator('a[href*="/pdf/"]').first(); const count = await link.count(); if (count > 0) { const [download] = await Promise.all([ page.waitForEvent('download'), link.click() ]); await download.saveAs('${outputDir.replace(/\\/g, "/")}/document.pdf'); return; } const lastNed = page.getByRole('link', { name: 'Last ned' }); const lastNedCount = await lastNed.count(); if (lastNedCount > 0) { const [download] = await Promise.all([ page.waitForEvent('download'), lastNed.click() ]); await download.saveAs('${outputDir.replace(/\\/g, "/")}/document.pdf'); return; } throw new Error('No PDF link found'); }`]);
-    if (dlCode !== 0) {
-      logIssue("pdf-download", "PDF download failed", { url: dokumenterUrl, outputDir });
-      log("PDF download failed. Check document.yml for available links.");
-    } else {
-      const pdfPath = path.join(outputDir, "document.pdf");
-      if (fs.existsSync(pdfPath)) {
-        log(`PDF saved: ${pdfPath}`);
+    if (page === "document-detail") {
+      // Click "Åpne dokumentet"
+      const lines = snapText.split(/\r?\n/);
+      let openRef = null;
+      for (const line of lines) {
+        const match = line.match(/(?:button|link) "([^"]*Åpne dokumentet[^"]*)" \[ref=(e\d+)\]/);
+        if (match) { openRef = match[2]; break; }
+      }
+      if (openRef) {
+        await runPlaywrightCli(["click", openRef]);
+        log(`Clicked 'Åpne dokumentet' (ref=${openRef})`);
       } else {
-        logIssue("pdf-download", "PDF download command succeeded but file not found", { outputDir });
-        log("PDF download command ran but file not found.");
+        log("Could not find 'Åpne dokumentet' in snapshot.");
+        logIssue("documents", "No 'Åpne dokumentet' button found in document detail");
       }
+      await sleep(3000);
+      continue;
     }
-  } else if (format === "html") {
-    log("Capturing HTML document...");
-    // Screenshot
-    const ssCode = await runPlaywrightCli(["screenshot", "--filename", path.join(outputDir, "document_screenshot.png"), "--full-page"]);
-    if (ssCode !== 0) {
-      logIssue("html-capture", "Full-page screenshot failed (possible PDF misdetected as HTML)", { outputDir });
-      log("Screenshot failed — document might be PDF. Trying download...");
-      format = "pdf";
-    } else {
+
+    if (page === "document-pdf") {
+      log("PDF document detected. Downloading...");
+      fs.copyFileSync(snapPath, path.join(outputDir, "document.yml"));
+      const dlCode = await runPlaywrightCli(["run-code", `async page => { const link = page.locator('a[href*="/pdf/"]').first(); const count = await link.count(); if (count > 0) { const [download] = await Promise.all([ page.waitForEvent('download'), link.click() ]); await download.saveAs('${outputDir.replace(/\\/g, "/")}/document.pdf'); return; } const lastNed = page.getByRole('link', { name: 'Last ned' }); const lastNedCount = await lastNed.count(); if (lastNedCount > 0) { const [download] = await Promise.all([ page.waitForEvent('download'), lastNed.click() ]); await download.saveAs('${outputDir.replace(/\\/g, "/")}/document.pdf'); return; } throw new Error('No PDF link found'); }`]);
+      if (dlCode === 0 && fs.existsSync(path.join(outputDir, "document.pdf"))) {
+        log(`PDF saved: ${path.join(outputDir, "document.pdf")}`);
+      } else {
+        logIssue("pdf-download", "PDF download failed", { outputDir });
+        log("PDF download failed.");
+      }
+      log(`\nDocument verification complete. Format: pdf`);
+      log(`Output: ${outputDir}`);
+      return 0;
+    }
+
+    if (page === "document-html") {
+      log("HTML document detected. Capturing...");
+      fs.copyFileSync(snapPath, path.join(outputDir, "document.yml"));
+      await runPlaywrightCli(["screenshot", "--filename", path.join(outputDir, "document_screenshot.png"), "--full-page"]);
       log("Saved: document_screenshot.png (full-page)");
+      const htmlResult = await runPlaywrightCliCapture(["eval", "document.documentElement.outerHTML"]);
+      if (htmlResult.code === 0 && htmlResult.stdout) {
+        fs.writeFileSync(path.join(outputDir, "document.html"), htmlResult.stdout.replace(/^### Result\s*/i, ""));
+        log("Saved: document.html");
+      }
+      log(`\nDocument verification complete. Format: html`);
+      log(`Output: ${outputDir}`);
+      return 0;
     }
-    // Save raw HTML
-    const htmlResult = await runPlaywrightCliCapture(["eval", "document.documentElement.outerHTML"]);
-    if (htmlResult.code === 0 && htmlResult.stdout) {
-      const htmlContent = htmlResult.stdout.replace(/^### Result\s*/i, "");
-      fs.writeFileSync(path.join(outputDir, "document.html"), htmlContent);
-      log("Saved: document.html");
+
+    // Unknown page — if this is step 0, try navigating to Dokumenter
+    if (step === 0) {
+      const dokumenterUrl = resolveDokumenterUrl(config);
+      if (dokumenterUrl) {
+        log(`Unknown page state. Navigating to Dokumenter: ${dokumenterUrl}`);
+        await runPlaywrightCli(["goto", dokumenterUrl]);
+        await sleep(2000);
+        continue;
+      }
     }
-  } else {
-    logIssue("documents", `Unknown document format — could not detect PDF or HTML`, { outputDir });
-    log("Could not determine format. Taking snapshot and screenshot for manual review.");
+
+    // Still unknown after navigation — give up
+    log(`Could not determine page state. Taking screenshot for manual review.`);
     await runPlaywrightCli(["screenshot", "--filename", path.join(outputDir, "document_screenshot.png"), "--full-page"]);
+    logIssue("documents", `Stuck on unknown page at step ${step + 1}`, { outputDir });
+    break;
   }
 
-  log(`\nDocument verification complete. Format: ${format}`);
   log(`Output: ${outputDir}`);
-  return 0;
+  return 1;
 }
 
 // --- Standardized commands: cookies, select-person, validate ---
