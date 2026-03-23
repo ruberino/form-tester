@@ -16,13 +16,17 @@ npm install -g form-tester
 form-tester install
 form-tester install --global   # or install to ~/.claude/skills/
 
-# Non-interactive mode (no prompts, best for AI agents):
-form-tester test <url> --auto
-form-tester test <url> --auto --pnr 12345 --persona ung-mann --scenario "test validation"
+# Non-interactive mode — accepts form name, path, or full URL:
+form-tester test SLV-PasRapp-2020 --auto
+form-tester test SLV-PasRapp-2020 --auto --pnr 12345 --persona ung-mann
+form-tester test https://example.com/skjemautfyller/FORM --auto
 
 # Human mode (user picks persona and scenario):
-form-tester test <url> --human                                          # lists personas, ask user
-form-tester test <url> --human --persona ung-mann --scenario "test X"   # run with user's choices
+form-tester test SLV-PasRapp-2020 --human                                  # lists personas
+form-tester test SLV-PasRapp-2020 --human --persona ung-mann --scenario "X" # with choices
+
+# Check URL resolution:
+form-tester url SLV-PasRapp-2020
 
 # Full interactive CLI:
 form-tester

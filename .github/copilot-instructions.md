@@ -16,15 +16,14 @@ When the user gives you a form URL to test, execute ALL steps below in sequence 
 
 ### Step 1 — Start the test
 
-If the user gives a partial URL (e.g. `skjemautfyller/SLV-PasRapp-2020`), read `form-tester.config.json` first to get `baseUrl` and `pnr`. Construct the full URL as `{baseUrl}/{partial-path}?pnr={pnr}`. Do NOT guess the domain — always use `baseUrl` from config.
+You can pass a full URL, a path, or just the form name. The CLI resolves it using `baseUrl` and `skjemaUrl` from config:
+```bash
+form-tester test SLV-PasRapp-2020 --auto                    # just form name
+form-tester test skjemautfyller/SLV-PasRapp-2020 --auto     # path
+form-tester test https://example.com/skjemautfyller/X --auto # full URL
+```
 
-```bash
-form-tester test <full-url> --auto
-```
-Or with options:
-```bash
-form-tester test <full-url> --auto --pnr 12345 --persona ung-mann --scenario "test validation"
-```
+To check how a form name resolves: `form-tester url SLV-PasRapp-2020`
 
 ### Step 2 — Dismiss cookies
 ```bash

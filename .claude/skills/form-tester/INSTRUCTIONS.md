@@ -71,10 +71,13 @@ IMPORTANT: Each prompt below MUST be asked as a separate message to the user. Wa
 4. Only after receiving answers to all prompts, proceed with the steps below.
 
 Step 1 — Open and setup:
-If the user gives a partial URL (e.g. `skjemautfyller/SLV-PasRapp-2020`), read `form-tester.config.json` to get `baseUrl` and `pnr`. Construct the full URL as `{baseUrl}/{path}?pnr={pnr}`. Do NOT guess the domain.
+You can pass a full URL, a path, or just the form name. The CLI resolves it using `baseUrl` and `skjemaUrl` from config:
 ```
-form-tester test <full-url> --auto --pnr <pnr> --persona <id> --scenario "<text>"
+form-tester test SLV-PasRapp-2020 --auto                    # just form name
+form-tester test skjemautfyller/SLV-PasRapp-2020 --auto     # path
+form-tester test https://example.com/skjemautfyller/X --auto # full URL
 ```
+To check resolution: `form-tester url SLV-PasRapp-2020`
 
 Step 2 — Dismiss cookies:
 ```

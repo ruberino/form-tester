@@ -7,7 +7,7 @@ const { spawn, execSync } = require("child_process");
 const CONFIG_PATH = path.join(process.cwd(), "form-tester.config.json");
 const OUTPUT_BASE = path.resolve(process.cwd(), "output");
 const ISSUES_PATH = path.join(OUTPUT_BASE, "issues.jsonl");
-const LOCAL_VERSION = "0.10.3";
+const LOCAL_VERSION = "0.11.0";
 const RECOMMENDED_PERSON = "Uromantisk Direktør";
 
 // Recording — persisted to disk so `form-tester exec` can append across processes
@@ -659,6 +659,7 @@ const DEFAULT_CONFIG = {
   pnr: "",
   person: "",
   baseUrl: "",
+  skjemaUrl: "/skjemautfyller",
   dokumenterUrlTemplate: "/dokumenter?pnr={PNR}",
   lastTestUrl: "",
   lastRunDir: "",
@@ -692,6 +693,20 @@ function resolveDokumenterUrl(config) {
     if (base) url = `${base}${url}`;
   }
   return url;
+}
+
+function resolveFormUrl(input, config) {
+  // If it's already a full URL, return as-is
+  if (input.startsWith("http://") || input.startsWith("https://")) return input;
+  const base = config.baseUrl || "";
+  // If it's a path like /skjemautfyller/FORM-ID or skjemautfyller/FORM-ID
+  if (input.includes("/")) {
+    const path = input.startsWith("/") ? input : `/${input}`;
+    return `${base}${path}`;
+  }
+  // It's just a form name like SLV-PasRapp-2020
+  const skjema = config.skjemaUrl || "/skjemautfyller";
+  return `${base}${skjema}/${input}`;
 }
 
 function extractPnrFromUrl(url) {
@@ -922,8 +937,9 @@ function printHelp() {
       "",
       "Subcommands (run directly):",
       "  form-tester install [--global]          Install skill files into project or ~/.claude/skills/",
-      "  form-tester test <url> --auto           Non-interactive test (for AI agents)",
-      "  form-tester test <url> --human          Interactive test with prompts",
+      "  form-tester test <name-or-url> --auto    Non-interactive test (for AI agents)",
+      "  form-tester test <name-or-url> --human  Interactive test with prompts",
+      "  form-tester url <name-or-path>           Resolve form name/path to full URL",
       "  form-tester exec <command> [args]       Run playwright-cli command (recorded)",
       "  form-tester replay <recording.json>     Replay a recorded test run",
       "  form-tester cookies                      Dismiss cookie banner",
@@ -1824,6 +1840,26 @@ async function main() {
     process.exit(code);
   }
 
+  if (args[0] === "url") {
+    const config = loadConfig();
+    const input = args.slice(1).join(" ");
+    if (!input) {
+      console.error("Usage: form-tester url <form-name-or-path>");
+      console.error("\nExamples:");
+      console.error("  form-tester url SLV-PasRapp-2020");
+      console.error("  form-tester url skjemautfyller/SLV-PasRapp-2020");
+      console.error("  form-tester url https://example.com/skjemautfyller/FORM");
+      console.error(`\nConfig: baseUrl=${config.baseUrl || "(not set)"}, skjemaUrl=${config.skjemaUrl || "/skjemautfyller"}, pnr=${config.pnr || "(not set)"}`);
+      process.exit(1);
+    }
+    let resolved = resolveFormUrl(input, config);
+    if (config.pnr && !extractPnrFromUrl(resolved)) {
+      resolved = setPnrOnUrl(resolved, config.pnr);
+    }
+    console.log(resolved);
+    process.exit(0);
+  }
+
   if (args[0] === "cookies") {
     const code = await handleCookies();
     process.exit(code);
@@ -1844,12 +1880,13 @@ async function main() {
 
   if (args[0] === "test" && args.includes("--human")) {
     const config = loadConfig();
-    const url = args.find((a) => a.startsWith("http"));
+    const flagVal = (flag) => args.includes(flag) ? args[args.indexOf(flag) + 1] : undefined;
+    const rawUrl = args.find((a) => a !== "test" && !a.startsWith("--") && a !== flagVal("--persona") && a !== flagVal("--scenario") && a !== flagVal("--pnr"));
+    const url = rawUrl ? resolveFormUrl(rawUrl, config) : null;
     if (!url) {
-      console.error("Usage: form-tester test <url> --human --persona <id> --scenario \"<text>\"");
+      console.error("Usage: form-tester test <form-name-or-url> --human --persona <id> --scenario \"<text>\"");
       process.exit(1);
     }
-    const flagVal = (flag) => args.includes(flag) ? args[args.indexOf(flag) + 1] : undefined;
     const personaFlag = flagVal("--persona");
     const scenarioFlag = flagVal("--scenario");
 
@@ -1876,12 +1913,13 @@ async function main() {
 
   if (args[0] === "test" && args.includes("--auto")) {
     const config = loadConfig();
-    const url = args.find((a) => a.startsWith("http"));
+    const flagVal = (flag) => args.includes(flag) ? args[args.indexOf(flag) + 1] : undefined;
+    const rawUrl = args.find((a) => a !== "test" && !a.startsWith("--") && a !== flagVal("--persona") && a !== flagVal("--scenario") && a !== flagVal("--pnr"));
+    const url = rawUrl ? resolveFormUrl(rawUrl, config) : null;
     if (!url) {
-      console.error("Usage: form-tester test <url> --auto [--pnr <pnr>] [--persona <id>] [--scenario <text>] [--silent|--verbose]");
+      console.error("Usage: form-tester test <form-name-or-url> --auto [--pnr <pnr>] [--persona <id>] [--scenario <text>] [--silent|--verbose]");
       process.exit(1);
     }
-    const flagVal = (flag) => args.includes(flag) ? args[args.indexOf(flag) + 1] : undefined;
     const verbosity = args.includes("--silent") ? "silent" : args.includes("--verbose") ? "verbose" : "normal";
     await handleTestAuto(url, config, {
       pnr: flagVal("--pnr"),
@@ -1941,6 +1979,7 @@ module.exports = {
   finalizeRecording,
   logIssue,
   listIssues,
+  resolveFormUrl,
   ISSUE_CATEGORIES,
 };
 

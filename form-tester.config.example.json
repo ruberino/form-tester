@@ -1,5 +1,6 @@
 {
   "pnr": "YOUR_PNR_HERE",
   "person": "",
-  "baseUrl": ""
+  "baseUrl": "",
+  "skjemaUrl": "/skjemautfyller"
 }
