@@ -10,96 +10,105 @@ npm install -g form-tester
 form-tester install
 ```
 
-## Running the CLI
+## Running a test
 
+When the user gives you a form URL to test, execute ALL steps below in sequence WITHOUT stopping to ask. Do not ask "want me to continue?" — just do the entire flow.
+
+### Step 1 — Start the test
 ```bash
-# AI mode (default) — no prompts:
 form-tester test <url> --auto
+```
+Or with options:
+```bash
 form-tester test <url> --auto --pnr 12345 --persona ung-mann --scenario "test validation"
-
-# Human mode — user chooses persona and scenario:
-form-tester test <url> --human                                          # lists personas
-form-tester test <url> --human --persona ung-mann --scenario "test X"   # run with choices
-
-# Full interactive CLI:
-form-tester
 ```
 
-Persona IDs: `ung-mann`, `gravid-kvinne`, `eldre-kvinne`, `kronisk-syk-mann`. Defaults to "noen" if omitted.
-
-When the user asks for `--human` mode:
-1. Run `form-tester test <url> --human` to get persona list.
-2. Ask the user to pick a persona and scenario.
-3. Re-run: `form-tester test <url> --human --persona <id> --scenario "<text>"` (use `""` for standard test).
-Otherwise default to `--auto`.
-
-## Commands
-
-| Command | Description |
-|---------|-------------|
-| `/setup` | Initial setup |
-| `/update` | Update Playwright CLI + skills |
-| `/version` | Show version |
-| `/people` | Rescan visible person list |
-| `/test {url}` | Test a form URL |
-| `/save {label}` | Save snapshot + screenshot |
-| `/clear` | Clear session |
-| `/quit` | Exit CLI |
-
-## Playwright CLI (use via form-tester exec)
-
-IMPORTANT: Always use `form-tester exec` instead of `playwright-cli` directly. This records all commands for replay.
-
+### Step 2 — Dismiss cookies
 ```bash
-form-tester exec open https://example.com
+form-tester cookies
+```
+
+### Step 3 — Select person
+```bash
+form-tester select-person
+```
+To select a specific person: `form-tester select-person "Name"`
+
+### Step 4 — Study the form
+Take a snapshot and identify ALL sections and required fields:
+```bash
 form-tester exec snapshot
-form-tester exec fill e1 "value"
-form-tester exec click e3
-form-tester exec screenshot --filename=page.png --full-page
-form-tester exec close           # finalizes recording
 ```
+Look for collapsed/accordion sections (buttons with arrow icons). Expand ALL of them by clicking their header buttons before filling anything.
 
-Replay a previous run:
+### Step 5 — Fill the form
+Use `form-tester exec` for ALL commands (this records them for replay):
 ```bash
-form-tester replay output/form-id/timestamp/recording.json
+form-tester exec fill <ref> "value"
+form-tester exec click <ref>
+form-tester exec select <ref> "option text"
+form-tester exec screenshot --filename "path.png" --full-page
 ```
 
-## Test Flow
-
-When `/test` is triggered:
-
-1. Prompt for PNR if not in URL. Wait for response.
-2. Prompt for persona (numbered selection). Wait for response.
-3. Prompt for test scenario in a separate message. Wait for response.
-4. Only after all prompts answered: open browser, fill form, submit, verify.
-
-## Important Notes
-
-- Provide a full /skjemautfyller URL. If `pnr` is missing, the CLI will prompt.
-- All screenshots MUST use `--full-page` to capture the entire page.
-- Take a full-page screenshot EVERY TIME the page changes: after clicking action buttons (Neste, Forrige, Send inn), after step/page transitions, after validation errors, after modals, and after submission.
-- Use `/save {label}` to capture additional snapshots into the output folder.
-- If an error modal appears on submit, open DevTools -> Network, retry once, and capture the Correlation ID header.
-
-## Post-Submit Verification
-
-After submission, read the modal text:
-- If it mentions Dokumenter storage -> navigate to `/dokumenter?pnr={PNR}`, verify the document appears.
-- If it does NOT mention Dokumenter -> skip verification, note in test_results.txt.
-
-Document capture — detect format via `form-tester exec snapshot`:
-
-**PDF documents** (link with href containing `/pdf/`, or screenshot times out):
-Do NOT screenshot PDFs. Do NOT use `require('fs')` in run-code (it doesn't exist there).
-Download using Playwright's download event:
-```
-form-tester exec run-code "async page => { const link = page.locator('a[href*=\"/pdf/\"]').first(); const [download] = await Promise.all([ page.waitForEvent('download'), link.click() ]); await download.saveAs('$OUTPUT_DIR/document.pdf'); }"
-```
-Or if there's a "Last ned" button:
-```
-form-tester exec run-code "async page => { const [download] = await Promise.all([ page.waitForEvent('download'), page.getByRole('link', { name: 'Last ned' }).click() ]); await download.saveAs('$OUTPUT_DIR/document.pdf'); }"
+For autosuggest/search fields: fill the text, wait for dropdown, then click the suggestion:
+```bash
+form-tester exec fill <ref> "search text"
+form-tester exec snapshot          # find the suggestion element
+form-tester exec click <suggestion-ref>
 ```
 
-**HTML documents**: `form-tester exec screenshot --filename "..." --full-page`. Also save raw HTML.
+### Step 6 — Submit
+Take a screenshot, then click the submit button.
 
-**XML/other**: note the type in test_results.txt and skip capture.
+### Step 7 — Handle validation errors
+IMPORTANT: If validation errors appear after submit, the form DID NOT SUBMIT. Run:
+```bash
+form-tester validate
+```
+This parses all validation errors, clicks each error link to scroll to the field, and shows what needs to be filled. Fix each field, then run `form-tester validate` again to confirm. Only then resubmit.
+
+RULES:
+- Maximum 3 submit attempts. After 3, STOP and write results.
+- Do NOT re-fill fields that are already filled.
+- Do NOT use JavaScript `dispatchEvent` or `element.evaluate()` to set values.
+- Always use Playwright's `fill`, `click`, `select` commands.
+
+### Step 8 — Post-submit verification
+After successful submission, read the modal text:
+- If it mentions Dokumenter storage ("lagret i Dokumenter") → run document verification
+- If it does NOT mention Dokumenter → skip, note in test_results.txt
+
+### Step 9 — Document verification
+```bash
+form-tester documents
+```
+This handles everything: navigate to Dokumenter, find latest doc, detect PDF vs HTML, download or screenshot.
+
+### Step 10 — Finalize
+- Write test_results.txt with status, data used, and notes
+- Close browser: `form-tester exec close`
+
+## Issue logging
+
+When something unexpected happens, log it:
+```bash
+form-tester issue <category> "<description>"
+```
+Categories: `person-selection`, `navigation`, `form-fill`, `submission`, `documents`, `pdf-download`, `html-capture`, `screenshot`, `snapshot`, `validation`, `modal`, `timeout`, `other`
+
+View recent issues: `form-tester issues`
+
+## Important rules
+
+- ALWAYS use `form-tester exec` instead of `playwright-cli` directly
+- ALL screenshots MUST use `--full-page`
+- Take a screenshot EVERY TIME the page changes
+- Do NOT stop to ask the user between steps — execute the full flow
+- Persona IDs: `ung-mann`, `gravid-kvinne`, `eldre-kvinne`, `kronisk-syk-mann`, `noen`
+
+## Human mode
+
+When user asks for `--human` mode:
+1. Run `form-tester test <url> --human` to get persona list
+2. Ask user to pick persona and scenario
+3. Re-run: `form-tester test <url> --human --persona <id> --scenario "<text>"`
