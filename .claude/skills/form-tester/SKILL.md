@@ -47,7 +47,24 @@ Replay a previous run:
 form-tester replay output/form-id/timestamp/recording.json
 ```
 
-## Commands
+## Document verification
+
+After form submission, use the standardized documents command:
+```bash
+form-tester documents        # auto-navigates, detects PDF/HTML, captures
+```
+This handles the full flow: navigate to Dokumenter, find latest doc, detect format, download PDF or screenshot HTML.
+
+## Issue logging
+
+When something unexpected happens during a test, log it for skill improvement:
+```bash
+form-tester issue <category> "<description>"
+form-tester issues              # view recent issues
+```
+Categories: `person-selection`, `navigation`, `form-fill`, `submission`, `documents`, `pdf-download`, `html-capture`, `screenshot`, `snapshot`, `validation`, `modal`, `timeout`, `other`
+
+## Interactive commands
 
 ```bash
 /setup

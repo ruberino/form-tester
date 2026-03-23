@@ -58,6 +58,13 @@ Notes:
 - Use `--help` or `-h` to print the command list without starting the prompt.
 - IMPORTANT: Always use `form-tester exec` instead of `playwright-cli` directly. This records all commands for replay. Same syntax: `form-tester exec fill e1 "value"`, `form-tester exec click e3`, `form-tester exec close` (finalizes recording).
 - Replay a previous run: `form-tester replay output/form-id/timestamp/recording.json`
+- IMPORTANT: When something unexpected happens during a test — wrong page state, unexpected modal, failed command, element not found, timeout, wrong document format — ALWAYS log an issue:
+  `form-tester issue <category> "<description of what happened>"`
+  Categories: person-selection, navigation, form-fill, submission, documents, pdf-download, html-capture, screenshot, snapshot, validation, modal, timeout, other
+  Example: `form-tester issue modal "Submit showed error modal instead of success: Det skjedde en feil"`
+  Example: `form-tester issue person-selection "Person list showed 0 options, had to retry manually"`
+  These logs help us improve the skill to handle more scenarios automatically.
+- View logged issues: `form-tester issues`
 - IMPORTANT: All screenshots taken during a test run MUST use `--full-page` to capture the entire page, not just the viewport. This applies to every screenshot command: `form-tester exec screenshot --filename "..." --full-page`
 - IMPORTANT: Take a full-page screenshot EVERY TIME the page changes. This includes: after clicking any action button (Neste, Forrige, Send inn, etc.), after a step/page transition, after form validation errors appear, after modals open, and after submission. Name screenshots descriptively (e.g., step1_filled.png, step2_before_submit.png, submit_result.png).
 
@@ -75,6 +82,19 @@ After a successful submission, read the modal text carefully:
 - If the modal does NOT mention Dokumenter, or says the form will not be stored/you will not get a response, skip Dokumenter verification entirely. Record this in test_results.txt.
 
 Dokumenter verification (only when modal confirms storage):
+Use the standardized documents command — it handles navigation, format detection, PDF download, and HTML capture automatically:
+```
+form-tester documents
+```
+This will:
+1. Navigate to `/dokumenter?pnr={PNR}`
+2. Click "Se detaljer" on the first document
+3. Click "Åpne dokumentet"
+4. Auto-detect PDF vs HTML format
+5. Download PDF or capture HTML screenshot + raw HTML
+6. Log issues automatically if any step fails
+
+If `form-tester documents` doesn't find the right elements (logged as issues), fall back to manual steps:
 1. Navigate to `/dokumenter?pnr={PNR}` and select the same person used during form fill.
 2. The document list loads sorted newest first. The first entry should match the form title.
 3. Click "Se detaljer" on the first document, then click "Åpne dokumentet".
@@ -107,4 +127,5 @@ Dokumenter verification (only when modal confirms storage):
 
    XML/other: Note type in test_results.txt, skip capture.
 
-5. Include the document verification results in test_results.txt (document title, whether it matched the form h1, document type: HTML/PDF/XML).
+5. Log any issues encountered: `form-tester issue documents "description of what went wrong"`
+6. Include the document verification results in test_results.txt (document title, whether it matched the form h1, document type: HTML/PDF/XML).

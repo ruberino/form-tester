@@ -6,7 +6,8 @@ const { spawn, execSync } = require("child_process");
 
 const CONFIG_PATH = path.join(process.cwd(), "form-tester.config.json");
 const OUTPUT_BASE = path.resolve(process.cwd(), "output");
-const LOCAL_VERSION = "0.8.3";
+const ISSUES_PATH = path.join(OUTPUT_BASE, "issues.jsonl");
+const LOCAL_VERSION = "0.9.0";
 const RECOMMENDED_PERSON = "Uromantisk Direktør";
 
 // Recording — persisted to disk so `form-tester exec` can append across processes
@@ -78,6 +79,182 @@ function saveRecording() {
     // config not found, skip
   }
   return result;
+}
+
+// Issue logging — captures problems during test runs for skill improvement
+const ISSUE_CATEGORIES = [
+  "person-selection",
+  "navigation",
+  "form-fill",
+  "submission",
+  "documents",
+  "pdf-download",
+  "html-capture",
+  "screenshot",
+  "snapshot",
+  "validation",
+  "modal",
+  "timeout",
+  "other",
+];
+
+function logIssue(category, message, context = {}) {
+  const entry = {
+    timestamp: new Date().toISOString(),
+    version: LOCAL_VERSION,
+    category,
+    message,
+    ...context,
+  };
+
+  // Append to global issues log
+  fs.mkdirSync(path.dirname(ISSUES_PATH), { recursive: true });
+  fs.appendFileSync(ISSUES_PATH, JSON.stringify(entry) + "\n");
+
+  // Also append to current run dir if available
+  try {
+    const config = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
+    if (config.lastRunDir && fs.existsSync(config.lastRunDir)) {
+      const runIssuesPath = path.join(config.lastRunDir, "issues.jsonl");
+      fs.appendFileSync(runIssuesPath, JSON.stringify(entry) + "\n");
+    }
+  } catch (e) {
+    // no config or run dir, global log is enough
+  }
+
+  return entry;
+}
+
+function listIssues(limit = 20) {
+  if (!fs.existsSync(ISSUES_PATH)) return [];
+  const lines = fs.readFileSync(ISSUES_PATH, "utf8").trim().split("\n").filter(Boolean);
+  const issues = lines.map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+  return issues.slice(-limit);
+}
+
+function formatIssue(issue) {
+  const time = issue.timestamp ? issue.timestamp.replace("T", " ").replace(/\.\d+Z$/, "") : "?";
+  const url = issue.url ? ` | ${issue.url}` : "";
+  const formId = issue.formId ? ` | ${issue.formId}` : "";
+  return `[${time}] [${issue.category}]${formId}${url}\n  ${issue.message}`;
+}
+
+async function handleDocuments(config, flags = {}) {
+  const v = flags.verbosity || "normal";
+  const log = (msg) => { if (v !== "silent") console.log(msg); };
+
+  const dokumenterUrl = resolveDokumenterUrl(config);
+  if (!dokumenterUrl) {
+    console.error("No Dokumenter URL available. Set pnr in config or URL.");
+    logIssue("documents", "No Dokumenter URL — missing PNR", { url: config.lastTestUrl });
+    return 1;
+  }
+
+  const outputDir = config.lastRunDir;
+  if (!outputDir) {
+    console.error("No output folder. Run a test first.");
+    return 1;
+  }
+  fs.mkdirSync(outputDir, { recursive: true });
+
+  // Step 1: Navigate to Dokumenter
+  log(`Navigating to Dokumenter: ${dokumenterUrl}`);
+  let code = await runPlaywrightCli(["goto", dokumenterUrl]);
+  if (code !== 0) {
+    logIssue("documents", `Failed to navigate to Dokumenter (exit ${code})`, { url: dokumenterUrl });
+    console.error("Failed to navigate to Dokumenter.");
+    return code;
+  }
+  await sleep(2000);
+
+  // Step 2: Take snapshot of document list
+  const docListSnapshot = path.join(outputDir, "dokumenter.yml");
+  await runPlaywrightCli(["snapshot", "--filename", docListSnapshot]);
+  await runPlaywrightCli(["screenshot", "--filename", path.join(outputDir, "dokumenter.png"), "--full-page"]);
+  log("Saved: dokumenter.yml + dokumenter.png");
+
+  // Step 3: Click first document's "Se detaljer"
+  log("Looking for first document...");
+  const clickResult = await runPlaywrightCliCapture(["eval", '() => { const link = document.querySelector("a[href*=\\"detaljer\\"], button:has-text(\\"Se detaljer\\"), a:has-text(\\"Se detaljer\\")"); if (link) { link.click(); return "clicked"; } return "not-found"; }']);
+  if (clickResult.stdout.includes("not-found")) {
+    logIssue("documents", "Could not find 'Se detaljer' link on Dokumenter page", { url: dokumenterUrl });
+    log("Could not find 'Se detaljer'. Check dokumenter.yml for the page structure.");
+    // Still continue — agent can handle manually
+  } else {
+    log("Clicked 'Se detaljer' on first document.");
+    await sleep(2000);
+  }
+
+  // Step 4: Click "Åpne dokumentet"
+  const openResult = await runPlaywrightCliCapture(["eval", '() => { const link = document.querySelector("a:has-text(\\"Åpne dokumentet\\"), button:has-text(\\"Åpne dokumentet\\")"); if (link) { link.click(); return "clicked"; } return "not-found"; }']);
+  if (openResult.stdout.includes("not-found")) {
+    logIssue("documents", "Could not find 'Åpne dokumentet' link", { url: dokumenterUrl });
+    log("Could not find 'Åpne dokumentet'. Take a snapshot to inspect the page.");
+  } else {
+    log("Clicked 'Åpne dokumentet'.");
+    await sleep(3000);
+  }
+
+  // Step 5: Detect format (PDF vs HTML)
+  const docSnapshot = path.join(outputDir, "document.yml");
+  await runPlaywrightCli(["snapshot", "--filename", docSnapshot]);
+
+  let format = "unknown";
+  if (fs.existsSync(docSnapshot)) {
+    const snapshotText = fs.readFileSync(docSnapshot, "utf8");
+    if (/href.*\/pdf\//i.test(snapshotText) || /blob:/i.test(snapshotText) || /\.pdf/i.test(snapshotText)) {
+      format = "pdf";
+    } else if (snapshotText.length > 500) {
+      // Has substantial content — likely HTML
+      format = "html";
+    }
+  }
+  log(`Detected document format: ${format}`);
+
+  // Step 6: Capture based on format
+  if (format === "pdf") {
+    log("Attempting PDF download...");
+    // Try direct PDF link first
+    const dlCode = await runPlaywrightCli(["run-code", `async page => { const link = page.locator('a[href*="/pdf/"]').first(); const count = await link.count(); if (count > 0) { const [download] = await Promise.all([ page.waitForEvent('download'), link.click() ]); await download.saveAs('${outputDir.replace(/\\/g, "/")}/document.pdf'); return; } const lastNed = page.getByRole('link', { name: 'Last ned' }); const lastNedCount = await lastNed.count(); if (lastNedCount > 0) { const [download] = await Promise.all([ page.waitForEvent('download'), lastNed.click() ]); await download.saveAs('${outputDir.replace(/\\/g, "/")}/document.pdf'); return; } throw new Error('No PDF link found'); }`]);
+    if (dlCode !== 0) {
+      logIssue("pdf-download", "PDF download failed", { url: dokumenterUrl, outputDir });
+      log("PDF download failed. Check document.yml for available links.");
+    } else {
+      const pdfPath = path.join(outputDir, "document.pdf");
+      if (fs.existsSync(pdfPath)) {
+        log(`PDF saved: ${pdfPath}`);
+      } else {
+        logIssue("pdf-download", "PDF download command succeeded but file not found", { outputDir });
+        log("PDF download command ran but file not found.");
+      }
+    }
+  } else if (format === "html") {
+    log("Capturing HTML document...");
+    // Screenshot
+    const ssCode = await runPlaywrightCli(["screenshot", "--filename", path.join(outputDir, "document_screenshot.png"), "--full-page"]);
+    if (ssCode !== 0) {
+      logIssue("html-capture", "Full-page screenshot failed (possible PDF misdetected as HTML)", { outputDir });
+      log("Screenshot failed — document might be PDF. Trying download...");
+      format = "pdf";
+    } else {
+      log("Saved: document_screenshot.png (full-page)");
+    }
+    // Save raw HTML
+    const htmlResult = await runPlaywrightCliCapture(["eval", "document.documentElement.outerHTML"]);
+    if (htmlResult.code === 0 && htmlResult.stdout) {
+      const htmlContent = htmlResult.stdout.replace(/^### Result\s*/i, "");
+      fs.writeFileSync(path.join(outputDir, "document.html"), htmlContent);
+      log("Saved: document.html");
+    }
+  } else {
+    logIssue("documents", `Unknown document format — could not detect PDF or HTML`, { outputDir });
+    log("Could not determine format. Taking snapshot and screenshot for manual review.");
+    await runPlaywrightCli(["screenshot", "--filename", path.join(outputDir, "document_screenshot.png"), "--full-page"]);
+  }
+
+  log(`\nDocument verification complete. Format: ${format}`);
+  log(`Output: ${outputDir}`);
+  return 0;
 }
 
 const PERSONAS = [
@@ -473,6 +650,9 @@ function printHelp() {
       "  form-tester test <url> --human          Interactive test with prompts",
       "  form-tester exec <command> [args]       Run playwright-cli command (recorded)",
       "  form-tester replay <recording.json>     Replay a recorded test run",
+      "  form-tester documents                   Verify document in Dokumenter (auto PDF/HTML)",
+      "  form-tester issue <category> <message>  Log an issue for skill improvement",
+      "  form-tester issues [limit]              Show recent logged issues",
       "",
       "Interactive commands:",
       "  /test {url}                 Open form URL and start test",
@@ -717,6 +897,7 @@ async function fetchPersonOptions() {
     console.log(
       `Failed to read person list from browser (${combinedOutput || "unknown error"}).`,
     );
+    logIssue("person-selection", `Failed to read person list: ${combinedOutput || "unknown error"}`);
     return [];
   }
   return parsePersonList(result.stdout);
@@ -749,6 +930,7 @@ async function promptPersonSelection(config) {
     console.log(
       "No person options detected. Open the picker and run /people to retry.",
     );
+    logIssue("person-selection", "No person options detected after 3 attempts");
     return;
   }
   console.log("Select a person:");
@@ -1100,6 +1282,7 @@ async function handleReplay(filePath) {
     console.log(`[${i + 1}/${recording.commandCount}] playwright-cli ${cmd.args.join(" ")}`);
     const code = await runPlaywrightCli(cmd.args);
     if (code !== 0) {
+      logIssue("other", `Replay command failed: playwright-cli ${cmd.args.join(" ")} (exit ${code})`);
       console.error(`Command failed with exit code ${code}. Stopping replay.`);
       process.exit(1);
     }
@@ -1317,6 +1500,49 @@ async function main() {
     process.exit(0);
   }
 
+  if (args[0] === "issue") {
+    const category = args[1];
+    const message = args.slice(2).join(" ");
+    if (!category || !message) {
+      console.error("Usage: form-tester issue <category> <message>");
+      console.error(`\nCategories: ${ISSUE_CATEGORIES.join(", ")}`);
+      process.exit(1);
+    }
+    if (!ISSUE_CATEGORIES.includes(category)) {
+      console.error(`Unknown category "${category}". Valid: ${ISSUE_CATEGORIES.join(", ")}`);
+      process.exit(1);
+    }
+    const config = loadConfig();
+    const entry = logIssue(category, message, {
+      url: config.lastTestUrl || undefined,
+      formId: config.lastTestUrl ? extractFormId(config.lastTestUrl) : undefined,
+      outputDir: config.lastRunDir || undefined,
+    });
+    console.log(`Issue logged: [${entry.category}] ${entry.message}`);
+    process.exit(0);
+  }
+
+  if (args[0] === "issues") {
+    const limit = Number.parseInt(args[1], 10) || 20;
+    const issues = listIssues(limit);
+    if (!issues.length) {
+      console.log("No issues logged yet.");
+      process.exit(0);
+    }
+    console.log(`Last ${issues.length} issue(s):\n`);
+    for (const issue of issues) {
+      console.log(formatIssue(issue));
+    }
+    process.exit(0);
+  }
+
+  if (args[0] === "documents") {
+    const config = loadConfig();
+    const verbosity = args.includes("--silent") ? "silent" : args.includes("--verbose") ? "verbose" : "normal";
+    const code = await handleDocuments(config, { verbosity });
+    process.exit(code);
+  }
+
   if (args[0] === "test" && args.includes("--human")) {
     const config = loadConfig();
     const url = args.find((a) => a.startsWith("http"));
@@ -1414,5 +1640,8 @@ module.exports = {
   startRecording,
   appendToRecording,
   finalizeRecording,
+  logIssue,
+  listIssues,
+  ISSUE_CATEGORIES,
 };
 
