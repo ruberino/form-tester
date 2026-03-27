@@ -21,11 +21,15 @@ const {
   startRecording,
   appendToRecording,
   finalizeRecording,
+  parseSnapshotRefs,
+  findGroupLabel,
+  isNameUnique,
+  refToLocator,
+  generateTestScript,
 } = require("../form-tester");
 
 test("extractFormId returns form id from skjemautfyller URL", () => {
-  const url =
-    "https://example.no/skjemautfyller/HV-SOS-1?pnr=24908196046";
+  const url = "https://example.no/skjemautfyller/HV-SOS-1?pnr=24908196046";
   assert.equal(extractFormId(url), "HV-SOS-1");
 });
 
@@ -54,7 +58,7 @@ test("ensurePnrInUrl prompts when pnr missing", async () => {
 });
 
 test("sanitizeSegment removes invalid path characters", () => {
-  assert.equal(sanitizeSegment('HV:SOS*1'), "HVSOS1");
+  assert.equal(sanitizeSegment("HV:SOS*1"), "HVSOS1");
 });
 
 test("resolveDokumenterUrl expands PNR template", () => {
@@ -72,8 +76,7 @@ test("prioritizeRecommended moves recommended to first position", () => {
 });
 
 test("parsePersonList parses JSON output and dedupes", () => {
-  const output =
-    '["Uromantisk Direktør","Alpha","Uromantisk Direktør","Beta"]';
+  const output = '["Uromantisk Direktør","Alpha","Uromantisk Direktør","Beta"]';
   const result = parsePersonList(output);
   assert.deepEqual(result, ["Uromantisk Direktør", "Alpha", "Beta"]);
 });
@@ -179,4 +182,234 @@ test("finalizeRecording returns null for missing file", () => {
 test("appendToRecording is resilient to missing file", () => {
   // Should not throw
   appendToRecording("/nonexistent/recording.json", ["click", "e1"]);
+});
+
+// --- Snapshot ref parsing tests ---
+
+test("parseSnapshotRefs extracts refs with roles and names", () => {
+  const snapshot = [
+    "- generic [ref=e1]:",
+    "  - main [ref=e2]:",
+    '    - heading "Form Title" [level=1] [ref=e3]',
+    '    - textbox "Fornavn" [ref=e5]',
+    '    - button "Send inn" [ref=e9] [cursor=pointer]',
+    '    - combobox "Velg sykehus" [ref=e13]:',
+    '      - option "Oslo"',
+    '    - radio "Ja" [ref=e20]',
+    '    - checkbox "Godtar vilkår" [ref=e25]',
+  ].join("\n");
+
+  const refs = parseSnapshotRefs(snapshot);
+  assert.equal(refs.e3.role, "heading");
+  assert.equal(refs.e3.name, "Form Title");
+  assert.equal(refs.e5.role, "textbox");
+  assert.equal(refs.e5.name, "Fornavn");
+  assert.equal(refs.e9.role, "button");
+  assert.equal(refs.e9.name, "Send inn");
+  assert.equal(refs.e13.role, "combobox");
+  assert.equal(refs.e13.name, "Velg sykehus");
+  assert.equal(refs.e20.role, "radio");
+  assert.equal(refs.e20.name, "Ja");
+  assert.equal(refs.e25.role, "checkbox");
+  assert.equal(refs.e25.name, "Godtar vilkår");
+  assert.equal(refs.e1.role, "generic");
+  assert.equal(refs.e1.name, "");
+});
+
+test("parseSnapshotRefs tracks parent refs", () => {
+  const snapshot = [
+    "- main [ref=e1]:",
+    "  - generic [ref=e2]:",
+    '    - radio "Ja" [ref=e3]',
+    '    - radio "Nei" [ref=e4]',
+  ].join("\n");
+  const refs = parseSnapshotRefs(snapshot);
+  assert.equal(refs.e2.parentRef, "e1");
+  assert.equal(refs.e3.parentRef, "e2");
+  assert.equal(refs.e4.parentRef, "e2");
+});
+
+test("parseSnapshotRefs handles elements without names", () => {
+  const snapshot = "- img [ref=e10]\n- main [ref=e2]";
+  const refs = parseSnapshotRefs(snapshot);
+  assert.equal(refs.e10.role, "img");
+  assert.equal(refs.e10.name, "");
+  assert.equal(refs.e2.role, "main");
+  assert.equal(refs.e2.name, "");
+});
+
+// --- Disambiguation tests ---
+
+test("isNameUnique returns true for unique names", () => {
+  const refMap = {
+    e1: { role: "button", name: "Send inn" },
+    e2: { role: "button", name: "Lagre" },
+    e3: { role: "radio", name: "Ja" },
+  };
+  assert.ok(isNameUnique("Send inn", "button", refMap));
+  assert.ok(isNameUnique("Lagre", "button", refMap));
+});
+
+test("isNameUnique returns false for duplicate names", () => {
+  const refMap = {
+    e1: { role: "radio", name: "Nei" },
+    e2: { role: "radio", name: "Nei" },
+    e3: { role: "radio", name: "Ja" },
+  };
+  assert.ok(!isNameUnique("Nei", "radio", refMap));
+  assert.ok(isNameUnique("Ja", "radio", refMap));
+});
+
+test("findGroupLabel finds question from sibling radio with longer name", () => {
+  const refMap = {
+    e10: { role: "generic", name: "", parentRef: null },
+    e11: { role: "radio", name: "Høyt blodtrykk Ja", parentRef: "e10" },
+    e12: { role: "radio", name: "Nei", parentRef: "e10" },
+  };
+  const label = findGroupLabel("e12", refMap);
+  assert.equal(label, "Høyt blodtrykk");
+});
+
+test("findGroupLabel returns null when no context available", () => {
+  const refMap = {
+    e1: { role: "radio", name: "Nei", parentRef: null },
+  };
+  assert.equal(findGroupLabel("e1", refMap), null);
+});
+
+test("refToLocator disambiguates radios with same name using group label", () => {
+  const snapshot = [
+    "- generic [ref=e100]:",
+    '  - radio "Allergi Ja" [ref=e104]',
+    '  - radio "Nei" [ref=e106]',
+    "- generic [ref=e200]:",
+    '  - radio "Diabetes Ja" [ref=e204]',
+    '  - radio "Nei" [ref=e206]',
+  ].join("\n");
+
+  const refs = parseSnapshotRefs(snapshot);
+  const loc106 = refToLocator("e106", refs);
+  const loc206 = refToLocator("e206", refs);
+
+  // Both "Nei" radios should be disambiguated with group label
+  assert.ok(
+    loc106.includes("filter"),
+    "e106 should be disambiguated with filter",
+  );
+  assert.ok(
+    loc206.includes("filter"),
+    "e206 should be disambiguated with filter",
+  );
+  assert.ok(
+    loc106.includes("Allergi"),
+    "e106 locator should reference Allergi",
+  );
+  assert.ok(
+    loc206.includes("Diabetes"),
+    "e206 locator should reference Diabetes",
+  );
+  assert.notEqual(loc106, loc206, "Disambiguated locators should differ");
+});
+
+test("refToLocator uses plain getByRole for unique names", () => {
+  const refMap = {
+    e1: { role: "button", name: "Send inn", parentRef: null },
+    e2: { role: "button", name: "Lagre", parentRef: null },
+  };
+  const loc = refToLocator("e1", refMap);
+  assert.equal(loc, "page.getByRole('button', { name: 'Send inn' })");
+});
+
+// --- Test generation tests ---
+
+test("generateTestScript produces valid script from recording", () => {
+  const dir = makeTmpDir();
+
+  // Create a snapshot file for ref resolution
+  const snapshotPath = path.join(dir, "form_loaded.yml");
+  fs.writeFileSync(
+    snapshotPath,
+    [
+      "- main [ref=e1]:",
+      '  - textbox "Fornavn" [ref=e5]',
+      '  - textbox "Etternavn" [ref=e6]',
+      '  - button "Send inn" [ref=e9] [cursor=pointer]',
+    ].join("\n"),
+  );
+
+  const recording = {
+    version: "0.12.0",
+    startedAt: "2026-03-26T10:00:00.000Z",
+    completedAt: "2026-03-26T10:05:00.000Z",
+    commandCount: 5,
+    commands: [
+      {
+        args: ["open", "https://example.com/form"],
+        timestamp: "2026-03-26T10:00:01Z",
+      },
+      {
+        args: ["snapshot", "--filename", snapshotPath],
+        timestamp: "2026-03-26T10:00:02Z",
+      },
+      { args: ["fill", "e5", "Ola"], timestamp: "2026-03-26T10:00:03Z" },
+      { args: ["fill", "e6", "Nordmann"], timestamp: "2026-03-26T10:00:04Z" },
+      { args: ["click", "e9"], timestamp: "2026-03-26T10:00:05Z" },
+    ],
+  };
+
+  const config = {
+    lastTestUrl: "https://example.com/skjemautfyller/TEST-FORM?pnr=123",
+  };
+  const script = generateTestScript(recording, dir, config);
+
+  // Verify the generated script contains proper locators
+  assert.ok(
+    script.includes("page.goto('https://example.com/form')"),
+    "should have goto",
+  );
+  assert.ok(
+    script.includes("getByRole('textbox', { name: 'Fornavn' })"),
+    "should resolve e5 to Fornavn textbox",
+  );
+  assert.ok(
+    script.includes("getByRole('textbox', { name: 'Etternavn' })"),
+    "should resolve e6 to Etternavn textbox",
+  );
+  assert.ok(
+    script.includes("getByRole('button', { name: 'Send inn' })"),
+    "should resolve e9 to Send inn button",
+  );
+  assert.ok(script.includes(".fill('Ola')"), "should fill Ola");
+  assert.ok(script.includes(".fill('Nordmann')"), "should fill Nordmann");
+  assert.ok(script.includes(".click()"), "should click");
+  assert.ok(
+    script.includes("context.tracing.start"),
+    "should have tracing start",
+  );
+  assert.ok(
+    script.includes("context.tracing.stop"),
+    "should have tracing stop",
+  );
+  assert.ok(script.includes("trace.zip"), "should reference trace.zip");
+
+  fs.rmSync(dir, { recursive: true });
+});
+
+test("generateTestScript handles unresolved refs with TODO", () => {
+  const dir = makeTmpDir();
+
+  const recording = {
+    version: "0.12.0",
+    startedAt: "2026-03-26T10:00:00.000Z",
+    completedAt: null,
+    commandCount: 1,
+    commands: [{ args: ["click", "e99"], timestamp: "2026-03-26T10:00:01Z" }],
+  };
+
+  const config = {};
+  const script = generateTestScript(recording, dir, config);
+  assert.ok(script.includes("TODO"), "should have TODO for unresolved ref");
+  assert.ok(script.includes("e99"), "should mention the ref");
+
+  fs.rmSync(dir, { recursive: true });
 });

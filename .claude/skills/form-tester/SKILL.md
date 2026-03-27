@@ -47,6 +47,7 @@ form-tester exec close    # finalizes and saves the recording
 ```
 
 Replay a previous run:
+
 ```bash
 form-tester replay output/form-id/timestamp/recording.json
 ```
@@ -61,11 +62,14 @@ form-tester select-person              # select recommended person ("Uromantisk 
 form-tester select-person "Name"       # select specific person by name
 form-tester validate                   # parse validation errors, scroll to each field, show context
 form-tester documents                  # navigate to Dokumenter, detect PDF/HTML, capture
+form-tester generate [recording.json]  # generate Playwright test from recording
+form-tester run [test.js] [--trace]    # run generated test (single process, with optional tracing)
 form-tester issue <category> "<text>"  # log an issue for skill improvement
 form-tester issues                     # view recent issues
 ```
 
 ### Typical test flow:
+
 1. `form-tester test <url> --auto` — open form
 2. `form-tester cookies` — dismiss cookies
 3. `form-tester select-person` — select person
@@ -73,6 +77,32 @@ form-tester issues                     # view recent issues
 5. Submit, then `form-tester validate` — find and fix any validation errors
 6. `form-tester documents` — verify document after successful submission
 7. `form-tester exec close` — finalize recording
+
+## Generate & Run (fast single-process execution with trace)
+
+After a test run, convert the recording into a standalone Playwright test and run it:
+
+```bash
+# Generate test from the most recent recording:
+form-tester generate
+
+# Generate from a specific recording:
+form-tester generate output/FORM-ID/timestamp/recording.json
+
+# Run the generated test with tracing:
+form-tester run output/FORM-ID/timestamp/test.generated.js --trace
+
+# Run headless:
+form-tester run test.generated.js --trace --headless
+
+# View trace:
+npx playwright show-trace output/FORM-ID/timestamp/trace.zip
+```
+
+The generated test uses `page.getByRole()` / `page.getByLabel()` locators resolved from snapshot data.
+Review and fix any `TODO` comments in the generated file before running.
+
+Requires `playwright` installed: `npm install -g playwright && npx playwright install chromium`
 
 ## Issue logging
 
